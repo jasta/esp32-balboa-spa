@@ -1,22 +1,14 @@
+use std::thread;
+use std::time::Duration;
+
 use anyhow::anyhow;
-use esp_idf_sys as _;
-
-use esp_idf_hal::modem::{Modem};
-use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::peripherals::Peripherals;
-use esp_idf_svc::eventloop::{EspEventLoop, System};
+use esp_idf_svc::eventloop::EspEventLoop;
+use esp_idf_sys as _;
+use log::info;
 
-use esp_idf_svc::wifi::EspWifi;
-use esp_idf_sys::EspError;
-
-#[toml_cfg::toml_config]
-pub struct Config {
-  #[default("")]
-  wifi_ssid: &'static str,
-
-  #[default("")]
-  wifi_psk: &'static str,
-}
+mod echo_server;
+mod wifi;
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();
@@ -27,22 +19,18 @@ fn main() -> anyhow::Result<()> {
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;
   let event_loop = EspEventLoop::take()?;
 
-  let _ = connect_wifi(peripherals.modem, event_loop.clone(), CONFIG.wifi_ssid, CONFIG.wifi_psk);
+  let wifi = wifi::connect_wifi(peripherals.modem, event_loop.clone(), SSID, PASS)?;
+  let server = echo_server::start_rs485_echo_server()?;
 
   println!("Hello, world!");
 
-  Ok(())
-}
+  for tick in 0.. {
+    println!("Tick #{tick}...");
+    thread::sleep(Duration::from_millis(1000));
+  }
 
-pub fn connect_wifi(
-    modem: impl Peripheral<P = Modem>,
-    event_loop: EspEventLoop<System>,
-    ssid: &str,
-    psk: &str
-) -> Result<(), EspError> {
-  let mut wifi = EspWifi::new(modem, event_loop, None)?;
-
-  wifi.scan();
+  drop(server);
+  drop(wifi);
 
   Ok(())
 }

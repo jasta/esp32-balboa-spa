@@ -9,9 +9,6 @@ use std::net::Ipv4Addr;
 use anyhow::anyhow;
 use log::info;
 
-const SSID: &str = env!("WIFI_SSID");
-const PASS: &str = env!("WIFI_PASS");
-
 pub fn connect_wifi(
     modem: impl Peripheral<P = Modem> + 'static,
     event_loop: EspEventLoop<System>,

@@ -5,10 +5,13 @@ use anyhow::anyhow;
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
-use log::info;
 
 mod echo_server;
 mod wifi;
+mod protocol;
+
+const SSID: &str = env!("WIFI_SSID");
+const PASS: &str = env!("WIFI_PASS");
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();

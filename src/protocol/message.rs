@@ -1,16 +1,21 @@
-/// Protocol definition as reverse engineered and documented here:
-/// https://github.com/ccutrer/balboa_worldwide_app/wiki#physical-layer
+//! Protocol definition as reverse engineered and documented here:
+//! https://github.com/ccutrer/balboa_worldwide_app/wiki#physical-layer
 
-use crc::{Algorithm, Crc};
+use std::io;
+use std::io::{Cursor, Read, Seek};
+
 use byteorder::ReadBytesExt;
+use crc::{Algorithm, Crc};
+use num_traits::{FromPrimitive, ToPrimitive};
 
+#[derive(Debug, Clone)]
 pub struct Message {
-  channel: Channel,
-  unknown: u8,
-  message_type: MessageType,
-  payload: Vec<u8>,
+  pub(crate) channel: Channel,
+  pub message_type: MessageTypeHolder,
+  pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum Channel {
   Reserved,
   Client(u8),
@@ -20,6 +25,13 @@ pub enum Channel {
   Unknown(u8),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum MessageTypeHolder {
+  Known(MessageType),
+  Unknown(u8),
+}
+
+#[derive(num_derive::FromPrimitive, num_derive::ToPrimitive, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum MessageType {
   NewClientClearToSend = 0x00,
@@ -66,17 +78,62 @@ const CrcAlgorithm: Algorithm<u8> = Algorithm {
 };
 const CrcEngine: Crc<u8> = Crc::<u8>::new(&CrcAlgorithm);
 
+impl Message {
+  pub fn new(channel: Channel, message_type: MessageType, payload: Vec<u8>) -> Self {
+    Self {
+      channel,
+      message_type: MessageTypeHolder::Known(message_type),
+      payload
+    }
+  }
+}
+
 impl TryFrom<&[u8]> for Message {
   type Error = ParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    let computed_crc = CrcEngine.checksum(&value[1..value.len()-1]);
+
+    let mut cursor = Cursor::new(value);
+    if cursor.read_u8()? != StartOfMessage {
+      return Err(ParseError::InvalidSof);
+    }
+    let length = cursor.read_u8()?;
+    if length < 5 {
+      return Err(ParseError::InvalidLength(length));
+    }
+    let channel = Channel::from(cursor.read_u8()?);
+    let magic_byte = cursor.read_u8()?;
+    let message_type = MessageTypeHolder::from(cursor.read_u8()?);
+    let mut payload: Vec<u8> = Vec::with_capacity(usize::from(length) - 5);
+    let _ = cursor.read_exact(payload.as_mut_slice())?;
+    let read_crc = cursor.read_u8()?;
+    if cursor.read_u8()? != EndOfMessage {
+      return Err(ParseError::InvalidEof);
+    }
+    if read_crc != computed_crc {
+      return Err(ParseError::CrcError);
+    }
+    Ok(Message::new(channel, message_type, payload))
   }
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum ParseError {
+  #[error("Invalid StartOfMessage marker")]
   InvalidSof,
+
+  #[error("Invalid EndOfMessage marker")]
   InvalidEof,
+
+  #[error("Invalid length provided: {0}")]
+  InvalidLength(u8),
+
+  #[error("Crc check failed")]
   CrcError,
+
+  #[error("Unexpected EOF (i.e. too few bytes in message)")]
+  UnexpectedEof(#[from] io::Error),
 }
 
 impl TryFrom<Message> for Vec<u8> {
@@ -84,7 +141,7 @@ impl TryFrom<Message> for Vec<u8> {
 
   fn try_from(value: Message) -> Result<Self, Self::Error> {
     let len = u8::try_from(5 + value.payload.len())
-        .map_err(|_| EncodeError::MessageTooLong)?;
+        .map_err(|_| EncodeError::MessageTooLong(value.payload.len()))?;
 
     let magic_byte = match value.channel {
       Channel::MulticastBroadcast => 0xaf,
@@ -96,6 +153,7 @@ impl TryFrom<Message> for Vec<u8> {
     result.push(len);
     result.push(value.channel.into());
     result.push(magic_byte);
+    result.push(value.message_type.into());
     result.extend(value.payload);
     result.push(CrcEngine.checksum(&result[1..]));
     result.push(EndOfMessage);
@@ -103,8 +161,10 @@ impl TryFrom<Message> for Vec<u8> {
   }
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum EncodeError {
-  MessageTooLong,
+  #[error("Payload size={0} exceeds maximum size of 251")]
+  MessageTooLong(usize),
 }
 
 impl From<u8> for Channel {
@@ -130,5 +190,33 @@ impl From<Channel> for u8 {
       Channel::MulticastBroadcast => 0xff,
       Channel::Unknown(c) => c,
     }
+  }
+}
+
+impl From<u8> for MessageTypeHolder {
+  fn from(value: u8) -> Self {
+    match MessageType::from_u8(value) {
+      Some(raw) => MessageTypeHolder::Known(raw),
+      None => MessageTypeHolder::Unknown(value),
+    }
+  }
+}
+
+impl From<MessageTypeHolder> for u8 {
+  fn from(value: MessageTypeHolder) -> Self {
+    match value {
+      MessageTypeHolder::Known(raw) => raw.to_u8().unwrap(),
+      MessageTypeHolder::Unknown(t) => t,
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_encode_decode_simple() {
+    Message::new(Channel::MulticastRequest, MessageType::ChannelAssignmentRequest,
   }
 }

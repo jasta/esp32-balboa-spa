@@ -24,8 +24,12 @@ embedded-hal = "0.2.7"
 log = "0.4.17"
 anyhow = "1"
 num-traits = "0.2.15"
+num-derive = "0.3.3"
 crc = "3.0.0"
 byteorder = "1.4.3"
+thiserror = "1.0.38"
+measurements = "0.11.0"
+time = "0.3.17"
 
 [build-dependencies]
 embuild = "0.31.0"

@@ -3,7 +3,7 @@ use log::{debug, error, info, warn};
 use crate::message::{EncodeError, Message};
 
 #[derive(Debug)]
-struct SerialReader {
+struct FramedReader {
   state: ReaderState,
   num_bytes_expected: Option<usize>,
   current_message: Vec<u8>,
@@ -11,7 +11,7 @@ struct SerialReader {
 }
 
 #[derive(Default, Debug)]
-struct SerialWriter {
+struct FramedWriter {
 }
 
 #[derive(Debug, PartialOrd, PartialEq, Clone)]
@@ -39,7 +39,7 @@ const CRC_ALGORITHM: Algorithm<u8> = Algorithm {
 };
 const CRC_ENGINE: Crc<u8> = Crc::<u8>::new(&CRC_ALGORITHM);
 
-impl SerialReader {
+impl FramedReader {
   pub fn new() -> Self {
     Self {
       state: ReaderState::Ready,
@@ -163,7 +163,7 @@ impl SerialReader {
   }
 }
 
-impl SerialWriter {
+impl FramedWriter {
   pub fn new() -> Self {
     Default::default()
   }
@@ -205,7 +205,7 @@ mod tests {
     expected_returns.push(Some(expected_message));
     assert_eq!(expected_returns.len(), encoded.len());
 
-    let mut reader = SerialReader::new();
+    let mut reader = FramedReader::new();
 
     for i in 0..encoded.len() {
       let ret = reader.accept(encoded[i]);
@@ -218,7 +218,7 @@ mod tests {
   fn test_crc_error() {
     let encoded = b"\x7e\x05\xfe\xbf\x01\xff";
 
-    let mut reader = SerialReader::new();
+    let mut reader = FramedReader::new();
     for byte in encoded {
       let ret = reader.accept(*byte);
       assert_eq!(ret, None);

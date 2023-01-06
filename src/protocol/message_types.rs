@@ -1,11 +1,16 @@
+use std::fmt::{Display, Formatter};
 use std::io;
 use std::io::Cursor;
+use std::time::Duration;
+use anyhow::anyhow;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use measurements::Temperature;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
+use num_traits::ToPrimitive;
 use time::Time;
 use crate::protocol::message::{Channel, Message, MessageType, MessageTypeHolder};
+use crate::protocol::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
 
 #[derive(Debug, Clone)]
 #[repr(u8)]
@@ -35,21 +40,58 @@ pub enum MessageType2 {
     v2: Option<StatusUpdateResponseV2>,
     v3: Option<StatusUpdateResponseV3>,
   } = 0x13,
-  SetTemperatureRequest = 0x20,
-  SetTimeRequest = 0x21,
-  SettingsRequest = 0x22,
-  FilterCycles = 0x23,
-  InformationResponse = 0x24,
-  PreferencesResponse = 0x26,
-  SetPreferenceRequest = 0x27,
-  FaultLogResponse = 0x28,
-  ChangeSetupRequest = 0x2a,
-  GfciTestResponse = 0x2b,
-  LockRequest = 0x2d,
-  ConfigurationResponse = 0x2e,
-  SetWifiSettingsRequest = 0x92,
-  WifiModuleConfigurationResponse = 0x94,
-  ToggleTestSettingRequest = 0xe0,
+  SetTemperatureRequest {
+    temperature: SetTemperature,
+  } = 0x20,
+  SetTimeRequest {
+    time: Time,
+  } = 0x21,
+  SettingsRequest(SettingsRequestMessage) = 0x22,
+  FilterCycles {
+    cycles: Vec<FilterCycle>,
+  } = 0x23,
+  InformationResponse {
+    software_version: SoftwareVersion,
+    system_model_number: String,
+    current_configuration_setup: u8,
+    configuration_signature: [u8; 4],
+    heater_voltage: ParsedEnum<HeaterVoltage, u8>,
+    heater_type: ParsedEnum<HeaterType, u8>,
+    dip_switch_settings: u16,
+  } = 0x24,
+  PreferencesResponse {
+    reminder_set: ParsedEnum<bool, u8>,
+    temperature_scale: ParsedEnum<TemperatureScale, u8>,
+    clock_mode: ParsedEnum<ClockMode, u8>,
+    cleanup_cycle: ParsedEnum<CleanupCycle, u8>,
+    dolphin_address: u8,
+    m8_artificial_intelligence: ParsedEnum<bool, u8>,
+  } = 0x26,
+  SetPreferenceRequest(SetPreferenceMessage) = 0x27,
+  FaultLogResponse {
+    total_entries: u8,
+    entry_number: u8,
+    fault_code: ParsedEnum<FaultCode, u8>,
+  } = 0x28,
+  ChangeSetupRequest {
+    setup_number: u8,
+  } = 0x2a,
+  GfciTestResponse {
+    result: ParsedEnum<GfciTestResult, u8>,
+  } = 0x2b,
+  LockRequest(LockRequestMessage) = 0x2d,
+  ConfigurationResponse {
+    pumps: Vec<ParsedEnum<PumpConfig, u8>>,
+    has_lights: Vec<ParsedEnum<bool, u8>>,
+    has_blower: bool,
+    has_circular_pump: bool,
+    has_aux: Vec<ParsedEnum<bool, u8>>,
+    has_mister: ParsedEnum<bool, u8>,
+  } = 0x2e,
+  WifiModuleConfigurationResponse {
+    mac: [u8; 6],
+  } = 0x94,
+  ToggleTestSettingRequest(ToggleTestMessage) = 0xe0,
   UnknownError1 = 0xe1,
   UnknownError2 = 0xf0,
 }
@@ -80,7 +122,7 @@ pub enum ItemCode {
 pub struct StatusUpdateResponseV1 {
   spa_state: ParsedEnum<SpaState, u8>,
   init_mode: ParsedEnum<InitializationMode, u8>,
-  current_temperature: Option<Temperature>,
+  current_temperature: Option<ProtocolTemperature>,
   time: Time,
   heating_mode: ParsedEnum<HeatingMode, u8>,
   reminder_type: ParsedEnum<ReminderType, u8>,
@@ -91,7 +133,7 @@ pub struct StatusUpdateResponseV1 {
   needs_heat: bool,
   heating_state: ParsedEnum<HeatingState, u8>,
   mister_on: ParsedEnum<bool, u8>,
-  set_temperature: Temperature,
+  set_temperature: ProtocolTemperature,
   pump_status: Vec<ParsedEnum<PumpStatus, u8>>
   circulation_pump_on: ParsedEnum<bool, u8>,
   blower_status: ParsedEnum<RelayStatus, u8>,
@@ -177,12 +219,183 @@ pub enum RelayStatus {
 
 #[derive(Debug, Clone)]
 pub struct StatusUpdateResponseV2 {
-
 }
 
 #[derive(Debug, Clone)]
 pub struct StatusUpdateResponseV3 {
+}
 
+#[derive(Debug, Clone)]
+#[repr(u8)]
+pub enum SettingsRequestMessage {
+  Configuration,
+  FilterCycles,
+  Information,
+  Preferences,
+  FaultLog {
+    entry_num: u8,
+  },
+  GfciTest,
+}
+
+impl From<&SettingsRequestMessage> for Vec<u8> {
+  fn from(value: &SettingsRequestMessage) -> Self {
+    match value {
+      SettingsRequestMessage::Configuration =>
+        vec![0x00, 0x0, 0x1],
+      SettingsRequestMessage::FilterCycles =>
+        vec![0x01, 0x0, 0x0],
+      SettingsRequestMessage::Information =>
+        vec![0x02, 0x0, 0x0],
+      SettingsRequestMessage::Preferences =>
+        vec![0x08, 0x0, 0x0],
+      SettingsRequestMessage::FaultLog { entry_num } =>
+        vec![0x20, *entry_num, 0x0],
+      SettingsRequestMessage::GfciTest =>
+        vec![0x80, 0x0, 0x0],
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct FilterCycle {
+  enabled: bool,
+  start_at: Time,
+  duration: Time,
+}
+
+#[derive(Clone)]
+pub struct SoftwareVersion {
+  version: [u8; 4],
+}
+
+impl Display for SoftwareVersion {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let suffix = match self.version[4] {
+      0 => "".to_owned(),
+      n => format!(".{}", n),
+    };
+    write!(f, "M{}_{} V{}{}", self.version[0], self.version[1], self.version[2], suffix)
+  }
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum HeaterVoltage {
+  V240 = 0x01,
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum HeaterType {
+  Standard = 0x0a,
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum ClockMode {
+  Hour12 = 0,
+  Hour24 = 1,
+}
+
+#[derive(Debug, Clone)]
+pub struct CleanupCycle {
+  enabled: bool,
+  duration: Duration,
+}
+
+impl TryFrom<&CleanupCycle> for u8 {
+  type Error = anyhow::Error;
+
+  fn try_from(value: &CleanupCycle) -> Result<Self, Self::Error> {
+    if value.enabled {
+      Ok(0)
+    } else {
+      let divided = value.duration.as_secs_f64() / (30. * 60.);
+      divided.round().to_u8()
+          .ok_or_else(|| anyhow!("Cannot convert to u8: {divided}"))
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+#[repr(u8)]
+pub enum SetPreferenceMessage {
+  Reminders(bool),
+  TemperatureScale(TemperatureScale),
+  ClockMode(ClockMode),
+  CleanupCycle(CleanupCycle),
+  DolphinAddress(u8),
+  M8ArtificialIntelligence(bool),
+}
+
+impl TryFrom<&SetPreferenceMessage> for Vec<u8> {
+  type Error = anyhow::Error;
+
+  fn try_from(value: &SetPreferenceMessage) -> Result<Self, Self::Error> {
+    let result = match value {
+      SetPreferenceMessage::Reminders(v) =>
+        vec![0x00, if *v { 1 } else { 0 }],
+      SetPreferenceMessage::TemperatureScale(v) =>
+        vec![0x01, v.to_u8().unwrap()],
+      SetPreferenceMessage::ClockMode(v) =>
+        vec![0x02, v.to_u8().unwrap()],
+      SetPreferenceMessage::CleanupCycle(v) =>
+        vec![0x03, u8::try_from(v)?],
+      SetPreferenceMessage::DolphinAddress(v) =>
+        vec![0x04, *v],
+      SetPreferenceMessage::M8ArtificialIntelligence(v) =>
+        vec![0x06, if *v { 1 } else { 0 }]
+    };
+    Ok(result)
+  }
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum FaultCode {
+  SensorsOutOfSync = 15,
+  WaterFlowLow = 16,
+  WaterFlowFailed = 17,
+  SettingsReset1 = 18,
+  PrimingMode = 19,
+  ClockFailed = 20,
+  SettingsReset2 = 21,
+  ProgramMemoryFailure = 22,
+  SensorsOutOfSyncCallForService = 26,
+  HeaterIsDry = 27,
+  HEaterMayBeDry = 28,
+  WaterTooHot = 29,
+  HeaterTooHot = 30,
+  SensorAFault = 31,
+  SensorBFault = 32,
+  PumpMayBeStuckOn = 34,
+  HotFault = 35,
+  GfciTestFailed = 36,
+  StandbyMode = 37,
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum GfciTestResult {
+  Fail = 0x0,
+  Pass = 0x1,
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum LockRequestMessage {
+  LockSettings = 0x01,
+  LockPanel = 0x02,
+  UnlockSettings = 0x03,
+  UnlockPanel = 0x04,
+}
+
+#[derive(Debug, Clone)]
+pub struct PumpConfig {
+  present: bool,
+  num_speeds: u8,
+}
+
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum ToggleTestMessage {
+  SensorABTemperatures = 0x03,
+  Timeouts = 0x04,
+  TempLimits = 0x05,
 }
 
 #[derive(Debug, Clone)]

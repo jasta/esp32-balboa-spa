@@ -1,20 +1,16 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::io::Cursor;
 use std::time::Duration;
 use anyhow::anyhow;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use measurements::Temperature;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
 use num_traits::ToPrimitive;
-use time::Time;
-use crate::protocol::message::{Channel, Message, MessageType, MessageTypeHolder};
+use crate::protocol::message::{Channel, Message};
 use crate::protocol::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
 
 #[derive(Debug, Clone)]
 #[repr(u8)]
-pub enum MessageType2 {
+pub enum MessageType {
   NewClientClearToSend() = 0x00,
   ChannelAssignmentRequest {
     device_type: u8,
@@ -44,7 +40,7 @@ pub enum MessageType2 {
     temperature: SetTemperature,
   } = 0x20,
   SetTimeRequest {
-    time: Time,
+    time: Duration,
   } = 0x21,
   SettingsRequest(SettingsRequestMessage) = 0x22,
   FilterCycles {
@@ -96,6 +92,12 @@ pub enum MessageType2 {
   UnknownError2 = 0xf0,
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedEnum<TYPE, PRIMITIVE> {
+  parsed: Option<TYPE>,
+  raw: PRIMITIVE,
+}
+
 #[derive(FromPrimitive, ToPrimitive, Debug, Copy, Clone)]
 pub enum ItemCode {
   NormalOperation = 0x01,
@@ -123,10 +125,10 @@ pub struct StatusUpdateResponseV1 {
   spa_state: ParsedEnum<SpaState, u8>,
   init_mode: ParsedEnum<InitializationMode, u8>,
   current_temperature: Option<ProtocolTemperature>,
-  time: Time,
+  time: Duration,
   heating_mode: ParsedEnum<HeatingMode, u8>,
   reminder_type: ParsedEnum<ReminderType, u8>,
-  hold_timer: Option<Time>,
+  hold_timer: Option<Duration>,
   filter_mode: ParsedEnum<FilterMode, u8>,
   panel_locked: bool,
   temperate_range: TemperatureRange,
@@ -134,18 +136,12 @@ pub struct StatusUpdateResponseV1 {
   heating_state: ParsedEnum<HeatingState, u8>,
   mister_on: ParsedEnum<bool, u8>,
   set_temperature: ProtocolTemperature,
-  pump_status: Vec<ParsedEnum<PumpStatus, u8>>
+  pump_status: Vec<ParsedEnum<PumpStatus, u8>>,
   circulation_pump_on: ParsedEnum<bool, u8>,
   blower_status: ParsedEnum<RelayStatus, u8>,
   light_status: Vec<ParsedEnum<RelayStatus, u8>>,
   reminder_set: bool,
   notification_set: ParsedEnum<bool, u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParsedEnum<TYPE, PRIMITIVE> {
-  parsed: Option<TYPE>,
-  raw: PRIMITIVE,
 }
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
@@ -260,11 +256,11 @@ impl From<&SettingsRequestMessage> for Vec<u8> {
 #[derive(Debug, Clone)]
 pub struct FilterCycle {
   enabled: bool,
-  start_at: Time,
-  duration: Time,
+  start_at: Duration,
+  duration: Duration,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SoftwareVersion {
   version: [u8; 4],
 }
@@ -348,26 +344,63 @@ impl TryFrom<&SetPreferenceMessage> for Vec<u8> {
   }
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+#[derive(FromPrimitive, ToPrimitive, thiserror::Error, Debug, Clone)]
 pub enum FaultCode {
+  #[error("Sensors are out of sync")]
   SensorsOutOfSync = 15,
+
+  #[error("The water flow is low")]
   WaterFlowLow = 16,
+
+  #[error("The water flow has failed")]
   WaterFlowFailed = 17,
+
+  #[error("The settings have been reset")]
   SettingsReset1 = 18,
+
+  #[error("Priming mode")]
   PrimingMode = 19,
+
+  #[error("The clock has failed")]
   ClockFailed = 20,
+
+  #[error("The settings have been reset")]
   SettingsReset2 = 21,
+
+  #[error("Program memory failure")]
   ProgramMemoryFailure = 22,
+
+  #[error("Sensors are out of sync -- call for service")]
   SensorsOutOfSyncCallForService = 26,
+
+  #[error("The heater is dry")]
   HeaterIsDry = 27,
-  HEaterMayBeDry = 28,
+
+  #[error("The heater may be dry")]
+  HeaterMayBeDry = 28,
+
+  #[error("The water is too hot")]
   WaterTooHot = 29,
+
+  #[error("The heater is too hot")]
   HeaterTooHot = 30,
+
+  #[error("Sensor A fault")]
   SensorAFault = 31,
+
+  #[error("Sensor B fault")]
   SensorBFault = 32,
+
+  #[error("A pump may be stuck on")]
   PumpMayBeStuckOn = 34,
+
+  #[error("Hot fault")]
   HotFault = 35,
+
+  #[error("The GFCI test failed")]
   GfciTestFailed = 36,
+
+  #[error("Standby Mode (Hold Mode")]
   StandbyMode = 37,
 }
 
@@ -404,34 +437,31 @@ pub struct ChannelAssignmentRequest {
   pub client_hash: u16,
 }
 
-impl TryFrom<&Message> for ChannelAssignmentRequest {
+impl TryFrom<&Message> for MessageType {
   type Error = PayloadParseError;
 
   fn try_from(value: &Message) -> Result<Self, Self::Error> {
-    if value.message_type != MessageTypeHolder::Known(MessageType::ChannelAssignmentRequest) {
-      return Err(PayloadParseError::InvalidMessageType);
-    }
-    let mut cursor = Cursor::new(&value.payload);
-    let device_type = cursor.read_u8()?;
-    let client_hash = cursor.read_u16::<BigEndian>()?;
-    Ok(Self { device_type, client_hash })
+    todo!()
   }
 }
 
-impl From<ChannelAssignmentRequest> for Vec<u8> {
-  fn from(value: ChannelAssignmentRequest) -> Self {
-    let mut cursor = Cursor::new(Vec::new());
-    cursor.write_u8(value.device_type).unwrap();
-    cursor.write_u16::<BigEndian>(value.client_hash).unwrap();
-    cursor.into_inner()
+impl TryFrom<&MessageType> for Vec<u8> {
+  type Error = PayloadEncodeError;
+
+  fn try_from(value: &MessageType) -> Result<Self, Self::Error> {
+    todo!()
   }
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
+#[derive(thiserror::Error, Debug)]
 pub enum PayloadParseError {
   #[error("Wrong message type")]
   InvalidMessageType,
 
   #[error("Unexpected EOF")]
   UnexpectedEof(#[from] io::Error)
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+pub enum PayloadEncodeError {
 }

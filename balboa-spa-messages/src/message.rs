@@ -58,7 +58,7 @@ impl TryFrom<&[u8]> for Message {
   type Error = ParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    let computed_crc = CRC_ENGINE.checksum(&value[1..value.len()-1]);
+    let computed_crc = CRC_ENGINE.checksum(&value[1..value.len()-2]);
 
     let mut cursor = Cursor::new(value);
     if cursor.read_u8()? != START_OF_MESSAGE {
@@ -66,13 +66,13 @@ impl TryFrom<&[u8]> for Message {
     }
     let length = cursor.read_u8()?;
     if length < 5 {
-      return Err(ParseError::InvalidLength(length));
+      return Err(ParseError::InvalidPayloadLength(length));
     }
     let channel = Channel::from(cursor.read_u8()?);
     let magic_byte = cursor.read_u8()?;
     let message_type = cursor.read_u8()?;
-    let mut payload: Vec<u8> = Vec::with_capacity(usize::from(length) - 5);
-    let _ = cursor.read_exact(payload.as_mut_slice())?;
+    let mut payload: Vec<u8> = vec![0; usize::from(length) - 5];
+    cursor.read_exact(payload.as_mut_slice())?;
     let read_crc = cursor.read_u8()?;
     if cursor.read_u8()? != END_OF_MESSAGE {
       return Err(ParseError::InvalidEof);
@@ -93,7 +93,7 @@ pub enum ParseError {
   InvalidEof,
 
   #[error("Invalid length provided: {0}")]
-  InvalidLength(u8),
+  InvalidPayloadLength(u8),
 
   #[error("Crc check failed")]
   CrcError,
@@ -114,12 +114,12 @@ impl TryFrom<&Message> for Vec<u8> {
       _ => 0xbf,
     };
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(7 + value.payload.len());
     result.push(START_OF_MESSAGE);
     result.push(len);
     result.push(u8::from(&value.channel));
     result.push(magic_byte);
-    result.push(value.message_type.into());
+    result.push(value.message_type);
     result.extend(&value.payload);
     result.push(CRC_ENGINE.checksum(&result[1..]));
     result.push(END_OF_MESSAGE);

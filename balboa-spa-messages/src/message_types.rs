@@ -5,8 +5,8 @@ use anyhow::anyhow;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
 use num_traits::ToPrimitive;
-use crate::protocol::message::{Channel, Message};
-use crate::protocol::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
+use crate::message::{Channel, Message};
+use crate::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
 
 #[derive(Debug, Clone)]
 #[repr(u8)]

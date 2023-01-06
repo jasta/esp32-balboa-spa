@@ -168,7 +168,7 @@ impl FramedWriter {
     Default::default()
   }
 
-  pub fn encode(message: &Message) -> Result<Vec<u8>, EncodeError> {
+  pub fn encode(&self, message: &Message) -> Result<Vec<u8>, EncodeError> {
     let unwrapped = message.to_bytes()?;
     let mut wrapped = Vec::with_capacity(3 + unwrapped.len());
     wrapped.push(START_OF_MESSAGE);
@@ -226,5 +226,20 @@ mod tests {
 
     assert_eq!(reader.state, ReaderState::LostPlace);
     assert_eq!(reader.frames_with_errors(), 1);
+  }
+
+  #[test]
+  fn test_reflexive_simple() {
+    let mut reader = FramedReader::new();
+    let writer = FramedWriter::new();
+
+    let message = Message::new(Channel::MulticastRequest, 0x1, vec![0x02, 0x03, 0x04]);
+    let encoded = writer.encode(&message).unwrap();
+    let mut last_ret = None;
+    for byte in encoded {
+      last_ret = reader.accept(byte);
+    }
+
+    assert_eq!(last_ret, Some(message));
   }
 }

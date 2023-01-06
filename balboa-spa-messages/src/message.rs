@@ -25,21 +25,6 @@ pub enum Channel {
   Unknown(u8),
 }
 
-const START_OF_MESSAGE: u8 = 0x7e;
-const END_OF_MESSAGE: u8 = 0x7e;
-
-const CRC_ALGORITHM: Algorithm<u8> = Algorithm {
-  width: 8,
-  poly: 0x07,
-  init: 0x02,
-  xorout: 0x02,
-  refin: false,
-  refout: false,
-  check: 0x00,
-  residue: 0x00,
-};
-const CRC_ENGINE: Crc<u8> = Crc::<u8>::new(&CRC_ALGORITHM);
-
 impl Message {
   pub fn new(channel: Channel, message_type: u8, payload: Vec<u8>) -> Self {
     Self { channel, message_type, payload }
@@ -58,12 +43,7 @@ impl TryFrom<&[u8]> for Message {
   type Error = ParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    let computed_crc = CRC_ENGINE.checksum(&value[1..value.len()-2]);
-
     let mut cursor = Cursor::new(value);
-    if cursor.read_u8()? != START_OF_MESSAGE {
-      return Err(ParseError::InvalidSof);
-    }
     let length = cursor.read_u8()?;
     if length < 5 {
       return Err(ParseError::InvalidPayloadLength(length));
@@ -73,30 +53,14 @@ impl TryFrom<&[u8]> for Message {
     let message_type = cursor.read_u8()?;
     let mut payload: Vec<u8> = vec![0; usize::from(length) - 5];
     cursor.read_exact(payload.as_mut_slice())?;
-    let read_crc = cursor.read_u8()?;
-    if cursor.read_u8()? != END_OF_MESSAGE {
-      return Err(ParseError::InvalidEof);
-    }
-    if read_crc != computed_crc {
-      return Err(ParseError::CrcError);
-    }
     Ok(Message::new(channel, message_type, payload))
   }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParseError {
-  #[error("Invalid StartOfMessage marker")]
-  InvalidSof,
-
-  #[error("Invalid EndOfMessage marker")]
-  InvalidEof,
-
   #[error("Invalid length provided: {0}")]
   InvalidPayloadLength(u8),
-
-  #[error("Crc check failed")]
-  CrcError,
 
   #[error("Unexpected EOF (i.e. too few bytes in message)")]
   UnexpectedEof(#[from] io::Error),
@@ -114,15 +78,12 @@ impl TryFrom<&Message> for Vec<u8> {
       _ => 0xbf,
     };
 
-    let mut result = Vec::with_capacity(7 + value.payload.len());
-    result.push(START_OF_MESSAGE);
+    let mut result = Vec::with_capacity(4 + value.payload.len());
     result.push(len);
     result.push(u8::from(&value.channel));
     result.push(magic_byte);
     result.push(value.message_type);
     result.extend(&value.payload);
-    result.push(CRC_ENGINE.checksum(&result[1..]));
-    result.push(END_OF_MESSAGE);
     Ok(result)
   }
 }
@@ -171,10 +132,18 @@ mod tests {
 
   #[test]
   fn test_encode_against_ref() {
+    let expected = b"\x08\xfe\xbf\x01\x02\xf2\x47";
+    let message = Message::new(Channel::MulticastRequest, 0x1, vec![0x02, 0xf2, 0x47]);
+    let actual = message.to_bytes().unwrap();
+    assert_eq!(actual, expected);
   }
 
   #[test]
   fn test_decode_against_ref() {
+    let expected = Message::new(Channel::MulticastRequest, 0x2, vec![0x10, 0xf2, 0x47]);
+    let encoded = b"\x08\xfe\xbf\x02\x10\xf2\x47";
+    let actual = Message::from_bytes(encoded).unwrap();
+    assert_eq!(actual, expected);
   }
 
   #[test]

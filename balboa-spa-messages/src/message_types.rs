@@ -1,12 +1,18 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
+use std::io::{Cursor, Write};
 use std::time::Duration;
 use anyhow::anyhow;
+use byteorder::{BigEndian, WriteBytesExt};
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
-use num_traits::ToPrimitive;
-use crate::message::{Channel, Message};
+use num_traits::{FromPrimitive, ToPrimitive};
+use bitvec::prelude::*;
+use crate::channel::Channel;
+use crate::message::Message;
+use crate::parsed_enum::ParsedEnum;
 use crate::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
+use crate::time::ProtocolTime;
 
 #[derive(Debug, Clone)]
 #[repr(u8)]
@@ -40,35 +46,16 @@ pub enum MessageType {
     temperature: SetTemperature,
   } = 0x20,
   SetTimeRequest {
-    time: Duration,
+    time: ProtocolTime,
   } = 0x21,
   SettingsRequest(SettingsRequestMessage) = 0x22,
   FilterCycles {
     cycles: Vec<FilterCycle>,
   } = 0x23,
-  InformationResponse {
-    software_version: SoftwareVersion,
-    system_model_number: String,
-    current_configuration_setup: u8,
-    configuration_signature: [u8; 4],
-    heater_voltage: ParsedEnum<HeaterVoltage, u8>,
-    heater_type: ParsedEnum<HeaterType, u8>,
-    dip_switch_settings: u16,
-  } = 0x24,
-  PreferencesResponse {
-    reminder_set: ParsedEnum<bool, u8>,
-    temperature_scale: ParsedEnum<TemperatureScale, u8>,
-    clock_mode: ParsedEnum<ClockMode, u8>,
-    cleanup_cycle: ParsedEnum<CleanupCycle, u8>,
-    dolphin_address: u8,
-    m8_artificial_intelligence: ParsedEnum<bool, u8>,
-  } = 0x26,
+  InformationResponse(InformationResponseMessage) = 0x24,
+  PreferencesResponse(PreferencesResponseMessage) = 0x26,
   SetPreferenceRequest(SetPreferenceMessage) = 0x27,
-  FaultLogResponse {
-    total_entries: u8,
-    entry_number: u8,
-    fault_code: ParsedEnum<FaultCode, u8>,
-  } = 0x28,
+  FaultLogResponse(FaultResponseMessage) = 0x28,
   ChangeSetupRequest {
     setup_number: u8,
   } = 0x2a,
@@ -76,26 +63,13 @@ pub enum MessageType {
     result: ParsedEnum<GfciTestResult, u8>,
   } = 0x2b,
   LockRequest(LockRequestMessage) = 0x2d,
-  ConfigurationResponse {
-    pumps: Vec<ParsedEnum<PumpConfig, u8>>,
-    has_lights: Vec<ParsedEnum<bool, u8>>,
-    has_blower: bool,
-    has_circular_pump: bool,
-    has_aux: Vec<ParsedEnum<bool, u8>>,
-    has_mister: ParsedEnum<bool, u8>,
-  } = 0x2e,
+  ConfigurationResponse(ConfigurationResponseMessage) = 0x2e,
   WifiModuleConfigurationResponse {
     mac: [u8; 6],
   } = 0x94,
   ToggleTestSettingRequest(ToggleTestMessage) = 0xe0,
   UnknownError1 = 0xe1,
   UnknownError2 = 0xf0,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParsedEnum<TYPE, PRIMITIVE> {
-  parsed: Option<TYPE>,
-  raw: PRIMITIVE,
 }
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Copy, Clone)]
@@ -125,13 +99,14 @@ pub struct StatusUpdateResponseV1 {
   spa_state: ParsedEnum<SpaState, u8>,
   init_mode: ParsedEnum<InitializationMode, u8>,
   current_temperature: Option<ProtocolTemperature>,
-  time: Duration,
+  time: ProtocolTime,
   heating_mode: ParsedEnum<HeatingMode, u8>,
   reminder_type: ParsedEnum<ReminderType, u8>,
-  hold_timer: Option<Duration>,
+  hold_timer: Option<ProtocolTime>,
   filter_mode: ParsedEnum<FilterMode, u8>,
   panel_locked: bool,
   temperate_range: TemperatureRange,
+  clock_mode: ParsedEnum<ClockMode, u8>,
   needs_heat: bool,
   heating_state: ParsedEnum<HeatingState, u8>,
   mister_on: ParsedEnum<bool, u8>,
@@ -213,6 +188,33 @@ pub enum RelayStatus {
   On = 3,
 }
 
+impl From<&StatusUpdateResponseV1> for Vec<u8> {
+  fn from(value: &StatusUpdateResponseV1) -> Self {
+    let mut cursor = Cursor::new(Vec::new());
+    cursor.write_u8(value.spa_state.as_raw());
+    cursor.write_u8(value.init_mode.as_raw());
+    cursor.write_u8(
+      value.current_temperature
+        .map(|t| t.raw_value).unwrap_or(0xff));
+    cursor.write_u16(value.time.as_raw());
+    cursor.write_u8(value.heating_mode.as_raw());
+    cursor.write_u8(value.reminder_type.as_raw());
+    let (sensorA, sensorB) = match value.spa_state.borrow_value() {
+      SpaState::AbTempsOn => {
+        (
+          value.hold_timer.unwrap().to_minutes(),
+          value.current_temperature.unwrap().raw_value,
+        )
+      }
+      _ => (0x0, 0x0)
+    };
+    cursor.write_u8(sensorA);
+    cursor.write_u8(sensorB);
+
+    todo!()
+  }
+}
+
 #[derive(Debug, Clone)]
 pub struct StatusUpdateResponseV2 {
 }
@@ -258,6 +260,39 @@ pub struct FilterCycle {
   enabled: bool,
   start_at: Duration,
   duration: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct InformationResponseMessage {
+  software_version: SoftwareVersion,
+  system_model_number: String,
+  current_configuration_setup: u8,
+  configuration_signature: [u8; 4],
+  heater_voltage: ParsedEnum<HeaterVoltage, u8>,
+  heater_type: ParsedEnum<HeaterType, u8>,
+  dip_switch_settings: u16,
+}
+
+impl From<&InformationResponseMessage> for Vec<u8> {
+  fn from(value: &InformationResponseMessage) -> Self {
+    todo!()
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct PreferencesResponseMessage {
+  reminder_set: ParsedEnum<bool, u8>,
+  temperature_scale: ParsedEnum<TemperatureScale, u8>,
+  clock_mode: ParsedEnum<ClockMode, u8>,
+  cleanup_cycle: ParsedEnum<CleanupCycle, u8>,
+  dolphin_address: u8,
+  m8_artificial_intelligence: ParsedEnum<bool, u8>,
+}
+
+impl From<&PreferencesResponseMessage> for Vec<u8> {
+  fn from(value: &PreferencesResponseMessage) -> Self {
+    todo!()
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -419,9 +454,38 @@ pub enum LockRequestMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct ConfigurationResponseMessage {
+  pumps: Vec<ParsedEnum<PumpConfig, u8>>,
+  has_lights: Vec<ParsedEnum<bool, u8>>,
+  has_blower: bool,
+  has_circular_pump: bool,
+  has_aux: Vec<ParsedEnum<bool, u8>>,
+  has_mister: ParsedEnum<bool, u8>,
+}
+
+impl From<&ConfigurationResponseMessage> for Vec<u8> {
+  fn from(value: &ConfigurationResponseMessage) -> Self {
+    todo!()
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct PumpConfig {
   present: bool,
   num_speeds: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct FaultResponseMessage {
+  total_entries: u8,
+  entry_number: u8,
+  fault_code: ParsedEnum<FaultCode, u8>,
+}
+
+impl From<&FaultResponseMessage> for Vec<u8> {
+  fn from(value: &FaultResponseMessage) -> Self {
+    todo!()
+  }
 }
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
@@ -431,10 +495,16 @@ pub enum ToggleTestMessage {
   TempLimits = 0x05,
 }
 
-#[derive(Debug, Clone)]
-pub struct ChannelAssignmentRequest {
-  pub device_type: u8,
-  pub client_hash: u16,
+impl MessageType {
+  fn discriminant(&self) -> u8 {
+    // This comes from docs on std::mem::discrimant and works only because MessageType is
+    // #[repr(u8)]
+    unsafe { *<*const _>::from(self).cast::<u8>() }
+  }
+
+  pub fn to_message(&self, channel: Channel) -> Result<Message, PayloadEncodeError> {
+    Ok(Message::new(channel, self.discriminant(), Vec::<u8>::try_from(self)?))
+  }
 }
 
 impl TryFrom<&Message> for MessageType {
@@ -445,11 +515,71 @@ impl TryFrom<&Message> for MessageType {
   }
 }
 
-impl TryFrom<&MessageType> for Vec<u8> {
+impl TryFrom<MessageType> for Vec<u8> {
   type Error = PayloadEncodeError;
 
-  fn try_from(value: &MessageType) -> Result<Self, Self::Error> {
-    todo!()
+  fn try_from(value: MessageType) -> Result<Self, Self::Error> {
+    let result = match value {
+      MessageType::NewClientClearToSend() => vec![],
+      MessageType::ChannelAssignmentRequest { device_type, client_hash } => {
+        let mut cursor = Cursor::new(Vec::with_capacity(3));
+        cursor.write_u8(device_type);
+        cursor.write_u16::<BigEndian>(client_hash);
+        cursor.into_inner()
+      }
+      MessageType::ChannelAssignmentResponse { channel, client_hash } => {
+        let mut cursor = Cursor::new(Vec::with_capacity(3));
+        cursor.write_u8(u8::from(&channel));
+        cursor.write_u16::<BigEndian>(client_hash);
+        cursor.into_inner()
+      }
+      MessageType::ChannelAssignmentAck() => vec![],
+      MessageType::ExistingClientRequest() => vec![],
+      MessageType::ExistingClientResponse { unknown } => unknown,
+      MessageType::ClearToSend() => vec![],
+      MessageType::NothingToSend() => vec![],
+      MessageType::ToggleItemRequest { item_code, dummy1 } =>
+        vec![item_code.to_u8(), dummy1],
+      MessageType::StatusUpdate { v1, v2, v3 } => {
+        assert!(v2.is_none(), "StatusUpdateResponseV2 not supported yet!");
+        assert!(v3.is_none(), "StatusUpdateResponseV3 not supported yet!");
+        Vec::<u8>::from(&v1)
+      }
+      MessageType::SetTemperatureRequest { temperature } =>
+        vec![temperature.raw_value],
+      MessageType::SetTimeRequest { time } => {
+        let mut cursor = Cursor::new(Vec::with_capacity(2));
+        cursor.write_u16(time.as_raw());
+        cursor.into_inner()
+      }
+      MessageType::SettingsRequest(message) =>
+        Vec::<u8>::from(message),
+      MessageType::FilterCycles { cycles } => {
+        todo!()
+      }
+      MessageType::InformationResponse(message) =>
+        Vec::<u8>::from(&message),
+      MessageType::PreferencesResponse(message) =>
+        Vec::<u8>::from(&message),
+      MessageType::SetPreferenceRequest(message) =>
+        Vec::<u8>::try_from(&message)?,
+      MessageType::FaultLogResponse(message) =>
+        Vec::<u8>::from(&message),
+      MessageType::ChangeSetupRequest { setup_number } =>
+        vec![setup_number],
+      MessageType::GfciTestResponse { result } =>
+        vec![result.as_raw()],
+      MessageType::LockRequest(message) =>
+        vec![message.to_u8()?],
+      MessageType::ConfigurationResponse(message) =>
+        Vec::<u8>::from(&message),
+      MessageType::WifiModuleConfigurationResponse { mac } =>
+        mac.to_vec(),
+      MessageType::ToggleTestSettingRequest(message) =>
+        vec![message.to_u8()?],
+      _ => todo!("No support for encoding this type!")
+    };
+    Ok(result)
   }
 }
 
@@ -459,7 +589,10 @@ pub enum PayloadParseError {
   InvalidMessageType,
 
   #[error("Unexpected EOF")]
-  UnexpectedEof(#[from] io::Error)
+  UnexpectedEof(#[from] io::Error),
+
+  #[error("Generic encoding error")]
+  GenericError(#[from] anyhow::Error),
 }
 
 #[derive(thiserror::Error, Debug, Clone)]

@@ -3,7 +3,7 @@ use log::{debug, error, info, warn};
 use crate::message::{EncodeError, Message};
 
 #[derive(Debug)]
-struct FramedReader {
+pub struct FramedReader {
   state: ReaderState,
   num_bytes_expected: Option<usize>,
   current_message: Vec<u8>,
@@ -11,11 +11,11 @@ struct FramedReader {
 }
 
 #[derive(Default, Debug)]
-struct FramedWriter {
+pub struct FramedWriter {
 }
 
 #[derive(Debug, PartialOrd, PartialEq, Clone)]
-enum ReaderState {
+pub enum ReaderState {
   Ready,
   GotStart,
   GotLength,
@@ -182,7 +182,7 @@ impl FramedWriter {
 #[cfg(test)]
 mod tests {
   use log::LevelFilter;
-  use crate::message::Channel;
+  use crate::channel::Channel;
   use super::*;
 
   #[test]

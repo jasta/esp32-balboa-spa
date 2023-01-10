@@ -3,15 +3,15 @@ use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
+const FAHRENHEIT_SCALE: f64 = 1.0;
+const CELSIUS_SCALE: f64 = 0.5;
+
 #[derive(Debug, Clone)]
 pub struct ProtocolTemperature {
   pub raw_scale: TemperatureScale,
-  raw_value: u8,
+  pub(crate) raw_value: u8,
   pub temperature: Temperature,
 }
-
-const FAHRENHEIT_SCALE: f64 = 1.0;
-const CELSIUS_SCALE: f64 = 0.5;
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
 pub enum TemperatureScale {
@@ -33,5 +33,5 @@ impl TemperatureScale {
 
 #[derive(Debug, Clone)]
 pub struct SetTemperature {
-  raw_value: u8,
+  pub(crate) raw_value: u8,
 }

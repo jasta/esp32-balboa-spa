@@ -1,32 +1,22 @@
 //! Protocol definition as reverse engineered and documented here:
 //! https://github.com/ccutrer/balboa_worldwide_app/wiki#physical-layer
 
-use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter, Write};
 use std::io;
 use std::io::{Cursor, Read};
 
 use byteorder::ReadBytesExt;
-use crc::{Algorithm, Crc};
+use crate::channel::Channel;
 
-#[derive(Debug, PartialOrd, PartialEq, Clone)]
+#[derive(PartialOrd, PartialEq, Clone)]
 pub struct Message {
   pub(crate) channel: Channel,
   pub message_type: u8,
   pub payload: Vec<u8>,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Channel {
-  Reserved,
-  Client(u8),
-  ClientNoCTS(u8),
-  MulticastRequest,
-  MulticastBroadcast, // <-- I think?
-  Unknown(u8),
-}
-
 impl Message {
-  pub fn new(channel: Channel, message_type: u8, payload: Vec<u8>) -> Self {
+  pub(crate) fn new(channel: Channel, message_type: u8, payload: Vec<u8>) -> Self {
     Self { channel, message_type, payload }
   }
 
@@ -36,6 +26,18 @@ impl Message {
 
   pub fn to_bytes(&self) -> Result<Vec<u8>, EncodeError> {
     Vec::<u8>::try_from(self)
+  }
+}
+
+impl Debug for Message {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let channel = u8::from(&self.channel);
+    let message_type = self.message_type;
+    write!(f, "{channel:#02X} {message_type:#02X} ")?;
+    for b in &self.payload {
+      write!(f, "{b:#02X} ")?;
+    }
+    Ok(())
   }
 }
 
@@ -92,38 +94,6 @@ impl TryFrom<&Message> for Vec<u8> {
 pub enum EncodeError {
   #[error("Payload size={0} exceeds maximum size of 251")]
   MessageTooLong(usize),
-}
-
-impl From<u8> for Channel {
-  fn from(value: u8) -> Self {
-    match value {
-      0x0a => Channel::Reserved,
-      c @ 0x10 ..= 0x2f => Channel::Client(c),
-      c @ 0x30 ..= 0x3f => Channel::ClientNoCTS(c),
-      0xfe => Channel::MulticastRequest,
-      0xff => Channel::MulticastBroadcast,
-      c => Channel::Unknown(c),
-    }
-  }
-}
-
-impl From<&Channel> for u8 {
-  fn from(value: &Channel) -> Self {
-    match *value {
-      Channel::Reserved => 0x0a,
-      Channel::Client(c) => c,
-      Channel::ClientNoCTS(c) => c,
-      Channel::MulticastRequest => 0xfe,
-      Channel::MulticastBroadcast => 0xff,
-      Channel::Unknown(c) => c,
-    }
-  }
-}
-
-impl PartialOrd for Channel {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    u8::from(self).partial_cmp(&u8::from(other))
-  }
 }
 
 #[cfg(test)]

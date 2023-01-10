@@ -8,7 +8,6 @@ use esp_idf_sys as _;
 
 mod echo_server;
 mod wifi;
-mod protocol;
 
 const SSID: &str = env!("WIFI_SSID");
 const PASS: &str = env!("WIFI_PASS");

@@ -10,7 +10,7 @@ impl <TYPE: FromPrimitive + ToPrimitive, PRIMITIVE: ProtocolPrimitive> ParsedEnu
   pub fn new(value: TYPE) -> Self {
     Self {
       parsed: Some(value),
-      raw: ProtocolPrimitive::from_protocol_u32(value.to_u32()).unwrap(),
+      raw: ProtocolPrimitive::from_protocol_u32(value.to_u32().unwrap()).unwrap(),
     }
   }
 

@@ -188,7 +188,7 @@ mod tests {
   #[test]
   fn test_precise_happy_path() {
     let encoded = b"\x7e\x08\xfe\xbf\x01\x02\xf2\x47\x0a\x7e";
-    let expected_message = Message::new(Channel::MulticastRequest, 0x1, vec![0x02, 0xf2, 0x47]);
+    let expected_message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0xf2, 0x47]);
     let expected_states = vec![
       ReaderState::GotStart,
       ReaderState::GotLength,
@@ -233,7 +233,7 @@ mod tests {
     let mut reader = FramedReader::new();
     let writer = FramedWriter::new();
 
-    let message = Message::new(Channel::MulticastRequest, 0x1, vec![0x02, 0x03, 0x04]);
+    let message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0x03, 0x04]);
     let encoded = writer.encode(&message).unwrap();
     let mut last_ret = None;
     for byte in encoded {

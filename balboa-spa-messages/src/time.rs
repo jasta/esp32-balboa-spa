@@ -13,7 +13,8 @@ impl ProtocolTime {
   }
 
   pub fn from_hm(hour: u8, minute: u8) -> Self {
-    Self::from_duration(Duration::from_secs(minute * 60 + hour * 60 * 60)).unwrap()
+    let secs = u64::from(minute) * 60 + u64::from(hour) * 60 * 60;
+    Self::from_duration(Duration::from_secs(secs).unwrap()).unwrap()
   }
 
   pub fn as_duration(&self) -> Duration {
@@ -21,7 +22,10 @@ impl ProtocolTime {
   }
 
   pub fn as_raw(&self) -> u16 {
-    (self.hour << 8) & 0xff | self.minute & 0xff
+    let mut result = 0u16;
+    result |= (self.hour << 8) & 0xff;
+    result |= self.minute & 0xff;
+    result
   }
 
   pub fn to_minutes(&self) -> u8 {
@@ -35,11 +39,15 @@ impl TryFrom<Duration> for ProtocolTime {
   fn try_from(value: Duration) -> Result<Self, Self::Error> {
     let total_minutes = value.as_secs() / 60;
     let hour = total_minutes / 60;
-    let minute = total_minutes % 60;
+    let minute = u8::try_from(total_minutes % 60).unwrap();
     if hour >= 24 {
       return Err(ProtocolTimeError::ExceedsSingleDay);
     }
-    Ok(Self { duration: value, hour, minute })
+    Ok(Self {
+      duration: value,
+      hour: u8::try_from(hour).unwrap(),
+      minute,
+    })
   }
 }
 

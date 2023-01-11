@@ -37,11 +37,7 @@ pub enum MessageType {
     item_code: ItemCode,
     dummy1: u8,
   } = 0x11,
-  StatusUpdate {
-    v1: StatusUpdateResponseV1,
-    v2: Option<StatusUpdateResponseV2>,
-    v3: Option<StatusUpdateResponseV3>,
-  } = 0x13,
+  StatusUpdate(StatusUpdateMessage) = 0x13,
   SetTemperatureRequest {
     temperature: SetTemperature,
   } = 0x20,
@@ -68,11 +64,9 @@ pub enum MessageType {
     mac: [u8; 6],
   } = 0x94,
   ToggleTestSettingRequest(ToggleTestMessage) = 0xe0,
-  UnknownError1 = 0xe1,
-  UnknownError2 = 0xf0,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Hash, Eq, Debug, Copy, Clone)]
 pub enum ItemCode {
   NormalOperation = 0x01,
   ClearNotification = 0x03,
@@ -95,28 +89,45 @@ pub enum ItemCode {
 }
 
 #[derive(Debug, Clone)]
+pub struct StatusUpdateMessage {
+  pub v1: StatusUpdateResponseV1,
+  pub v2: Option<StatusUpdateResponseV2>,
+  pub v3: Option<StatusUpdateResponseV3>,
+}
+
+impl TryFrom<&StatusUpdateMessage> for Vec<u8> {
+  type Error = io::Error;
+
+  fn try_from(value: &StatusUpdateMessage) -> Result<Self, Self::Error> {
+    assert!(value.v2.is_none(), "StatusUpdateResponseV2 not supported yet!");
+    assert!(value.v3.is_none(), "StatusUpdateResponseV3 not supported yet!");
+    Vec::<u8>::try_from(&value.v1)
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct StatusUpdateResponseV1 {
-  spa_state: ParsedEnum<SpaState, u8>,
-  init_mode: ParsedEnum<InitializationMode, u8>,
-  current_temperature: Option<ProtocolTemperature>,
-  time: ProtocolTime,
-  heating_mode: ParsedEnum<HeatingMode, u8>,
-  reminder_type: ParsedEnum<ReminderType, u8>,
-  hold_timer: Option<ProtocolTime>,
-  filter_mode: ParsedEnum<FilterMode, u8>,
-  panel_locked: bool,
-  temperate_range: TemperatureRange,
-  clock_mode: ParsedEnum<ClockMode, u8>,
-  needs_heat: bool,
-  heating_state: ParsedEnum<HeatingState, u8>,
-  mister_on: ParsedEnum<bool, u8>,
-  set_temperature: ProtocolTemperature,
-  pump_status: Vec<ParsedEnum<PumpStatus, u8>>,
-  circulation_pump_on: ParsedEnum<bool, u8>,
-  blower_status: ParsedEnum<RelayStatus, u8>,
-  light_status: Vec<ParsedEnum<RelayStatus, u8>>,
-  reminder_set: bool,
-  notification_set: ParsedEnum<bool, u8>,
+  pub spa_state: ParsedEnum<SpaState, u8>,
+  pub init_mode: ParsedEnum<InitializationMode, u8>,
+  pub current_temperature: Option<ProtocolTemperature>,
+  pub time: ProtocolTime,
+  pub heating_mode: ParsedEnum<HeatingMode, u8>,
+  pub reminder_type: ParsedEnum<ReminderType, u8>,
+  pub hold_timer: Option<ProtocolTime>,
+  pub filter_mode: ParsedEnum<FilterMode, u8>,
+  pub panel_locked: bool,
+  pub temperate_range: TemperatureRange,
+  pub clock_mode: ParsedEnum<ClockMode, u8>,
+  pub needs_heat: bool,
+  pub heating_state: ParsedEnum<HeatingState, u8>,
+  pub mister_on: ParsedEnum<bool, u8>,
+  pub set_temperature: ProtocolTemperature,
+  pub pump_status: Vec<ParsedEnum<PumpStatus, u8>>,
+  pub circulation_pump_on: ParsedEnum<bool, u8>,
+  pub blower_status: ParsedEnum<RelayStatus, u8>,
+  pub light_status: Vec<ParsedEnum<RelayStatus, u8>>,
+  pub reminder_set: ParsedEnum<bool, u8>,
+  pub notification_set: ParsedEnum<bool, u8>,
 }
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
@@ -188,17 +199,19 @@ pub enum RelayStatus {
   On = 3,
 }
 
-impl From<&StatusUpdateResponseV1> for Vec<u8> {
-  fn from(value: &StatusUpdateResponseV1) -> Self {
+impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
+  type Error = io::Error;
+
+  fn try_from(value: &StatusUpdateResponseV1) -> Result<Self, Self::Error> {
     let mut cursor = Cursor::new(Vec::new());
-    cursor.write_u8(value.spa_state.as_raw());
-    cursor.write_u8(value.init_mode.as_raw());
+    cursor.write_u8(value.spa_state.as_raw())?;
+    cursor.write_u8(value.init_mode.as_raw())?;
     cursor.write_u8(
       value.current_temperature
-        .map(|t| t.raw_value).unwrap_or(0xff));
-    cursor.write_u16(value.time.as_raw());
-    cursor.write_u8(value.heating_mode.as_raw());
-    cursor.write_u8(value.reminder_type.as_raw());
+        .map(|t| t.raw_value).unwrap_or(0xff))?;
+    cursor.write_u16(value.time.as_raw())?;
+    cursor.write_u8(value.heating_mode.as_raw())?;
+    cursor.write_u8(value.reminder_type.as_raw())?;
     let (sensorA, sensorB) = match value.spa_state.borrow_value() {
       SpaState::AbTempsOn => {
         (
@@ -208,8 +221,8 @@ impl From<&StatusUpdateResponseV1> for Vec<u8> {
       }
       _ => (0x0, 0x0)
     };
-    cursor.write_u8(sensorA);
-    cursor.write_u8(sensorB);
+    cursor.write_u8(sensorA)?;
+    cursor.write_u8(sensorB)?;
 
     todo!()
   }
@@ -497,12 +510,12 @@ pub enum ToggleTestMessage {
 
 impl MessageType {
   fn discriminant(&self) -> u8 {
-    // This comes from docs on std::mem::discrimant and works only because MessageType is
+    // This comes from docs on std::mem::discriminant and works only because MessageType is
     // #[repr(u8)]
     unsafe { *<*const _>::from(self).cast::<u8>() }
   }
 
-  pub fn to_message(&self, channel: Channel) -> Result<Message, PayloadEncodeError> {
+  pub fn to_message(self, channel: Channel) -> Result<Message, PayloadEncodeError> {
     Ok(Message::new(channel, self.discriminant(), Vec::<u8>::try_from(self)?))
   }
 }
@@ -523,14 +536,14 @@ impl TryFrom<MessageType> for Vec<u8> {
       MessageType::NewClientClearToSend() => vec![],
       MessageType::ChannelAssignmentRequest { device_type, client_hash } => {
         let mut cursor = Cursor::new(Vec::with_capacity(3));
-        cursor.write_u8(device_type);
-        cursor.write_u16::<BigEndian>(client_hash);
+        cursor.write_u8(device_type)?;
+        cursor.write_u16::<BigEndian>(client_hash)?;
         cursor.into_inner()
       }
       MessageType::ChannelAssignmentResponse { channel, client_hash } => {
         let mut cursor = Cursor::new(Vec::with_capacity(3));
-        cursor.write_u8(u8::from(&channel));
-        cursor.write_u16::<BigEndian>(client_hash);
+        cursor.write_u8(u8::from(&channel))?;
+        cursor.write_u16::<BigEndian>(client_hash)?;
         cursor.into_inner()
       }
       MessageType::ChannelAssignmentAck() => vec![],
@@ -539,23 +552,20 @@ impl TryFrom<MessageType> for Vec<u8> {
       MessageType::ClearToSend() => vec![],
       MessageType::NothingToSend() => vec![],
       MessageType::ToggleItemRequest { item_code, dummy1 } =>
-        vec![item_code.to_u8(), dummy1],
-      MessageType::StatusUpdate { v1, v2, v3 } => {
-        assert!(v2.is_none(), "StatusUpdateResponseV2 not supported yet!");
-        assert!(v3.is_none(), "StatusUpdateResponseV3 not supported yet!");
-        Vec::<u8>::from(&v1)
-      }
+        vec![item_code.to_u8().unwrap(), dummy1],
+      MessageType::StatusUpdate(message) =>
+        Vec::<u8>::try_from(&message)?,
       MessageType::SetTemperatureRequest { temperature } =>
         vec![temperature.raw_value],
       MessageType::SetTimeRequest { time } => {
         let mut cursor = Cursor::new(Vec::with_capacity(2));
-        cursor.write_u16(time.as_raw());
+        cursor.write_u16(time.as_raw())?;
         cursor.into_inner()
       }
       MessageType::SettingsRequest(message) =>
         Vec::<u8>::from(message),
       MessageType::FilterCycles { cycles } => {
-        todo!()
+        return Err(PayloadEncodeError::NotSupported)
       }
       MessageType::InformationResponse(message) =>
         Vec::<u8>::from(&message),
@@ -570,14 +580,14 @@ impl TryFrom<MessageType> for Vec<u8> {
       MessageType::GfciTestResponse { result } =>
         vec![result.as_raw()],
       MessageType::LockRequest(message) =>
-        vec![message.to_u8()?],
+        vec![message.to_u8().unwrap()],
       MessageType::ConfigurationResponse(message) =>
         Vec::<u8>::from(&message),
       MessageType::WifiModuleConfigurationResponse { mac } =>
         mac.to_vec(),
       MessageType::ToggleTestSettingRequest(message) =>
-        vec![message.to_u8()?],
-      _ => todo!("No support for encoding this type!")
+        vec![message.to_u8().unwrap()],
+      _ => return Err(PayloadEncodeError::NotSupported),
     };
     Ok(result)
   }
@@ -590,11 +600,16 @@ pub enum PayloadParseError {
 
   #[error("Unexpected EOF")]
   UnexpectedEof(#[from] io::Error),
-
-  #[error("Generic encoding error")]
-  GenericError(#[from] anyhow::Error),
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum PayloadEncodeError {
+  #[error("Generic I/O error")]
+  GenericIoError(#[from] io::Error),
+
+  #[error("Generic internal error")]
+  GenericError(#[from] anyhow::Error),
+
+  #[error("Message type encoding not yet supported")]
+  NotSupported,
 }

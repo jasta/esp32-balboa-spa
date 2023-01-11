@@ -9,6 +9,7 @@ anyhow = "1"
 thiserror = "1"
 timer = "0.2.0"
 chrono = "0.4.23"
+bimap = "0.6.2"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 
 [dev-dependencies]

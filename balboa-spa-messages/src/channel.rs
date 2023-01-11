@@ -3,12 +3,12 @@ use core::ops::RangeInclusive;
 
 const CLIENT_CTS_RANGE: RangeInclusive<u8> = 0x10 ..= 0x2f;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum Channel {
-  Reserved,
+  WifiModule,
   Client(u8),
   ClientNoCTS(u8),
-  MulticastRequest,
+  MulticastChannelAssignment,
   MulticastBroadcast, // <-- I think?
   Unknown(u8),
 }
@@ -29,10 +29,10 @@ pub struct ChannelOverflow;
 impl From<u8> for Channel {
   fn from(value: u8) -> Self {
     match value {
-      0x0a => Channel::Reserved,
+      0x0a => Channel::WifiModule,
       c @ 0x10 ..= 0x2f => Channel::Client(c),
       c @ 0x30 ..= 0x3f => Channel::ClientNoCTS(c),
-      0xfe => Channel::MulticastRequest,
+      0xfe => Channel::MulticastChannelAssignment,
       0xff => Channel::MulticastBroadcast,
       c => Channel::Unknown(c),
     }
@@ -42,10 +42,10 @@ impl From<u8> for Channel {
 impl From<&Channel> for u8 {
   fn from(value: &Channel) -> Self {
     match *value {
-      Channel::Reserved => 0x0a,
+      Channel::WifiModule => 0x0a,
       Channel::Client(c) => c,
       Channel::ClientNoCTS(c) => c,
-      Channel::MulticastRequest => 0xfe,
+      Channel::MulticastChannelAssignment => 0xfe,
       Channel::MulticastBroadcast => 0xff,
       Channel::Unknown(c) => c,
     }

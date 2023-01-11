@@ -10,7 +10,7 @@ use crate::channel::Channel;
 
 #[derive(PartialOrd, PartialEq, Clone)]
 pub struct Message {
-  pub(crate) channel: Channel,
+  pub channel: Channel,
   pub message_type: u8,
   pub payload: Vec<u8>,
 }
@@ -103,14 +103,14 @@ mod tests {
   #[test]
   fn test_encode_against_ref() {
     let expected = b"\x08\xfe\xbf\x01\x02\xf2\x47";
-    let message = Message::new(Channel::MulticastRequest, 0x1, vec![0x02, 0xf2, 0x47]);
+    let message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0xf2, 0x47]);
     let actual = message.to_bytes().unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn test_decode_against_ref() {
-    let expected = Message::new(Channel::MulticastRequest, 0x2, vec![0x10, 0xf2, 0x47]);
+    let expected = Message::new(Channel::MulticastChannelAssignment, 0x2, vec![0x10, 0xf2, 0x47]);
     let encoded = b"\x08\xfe\xbf\x02\x10\xf2\x47";
     let actual = Message::from_bytes(encoded).unwrap();
     assert_eq!(actual, expected);

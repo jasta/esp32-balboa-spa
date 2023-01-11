@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use measurements::Temperature;
+pub use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
@@ -20,7 +20,7 @@ pub enum TemperatureScale {
 }
 
 impl TemperatureScale {
-  pub fn new_set_temperature(&self, target: Temperature) -> anyhow::Result<SetTemperature> {
+  pub fn new_set_temperature(&self, target: &Temperature) -> anyhow::Result<SetTemperature> {
     let raw_target = match self {
       TemperatureScale::Fahrenheit => target.as_fahrenheit() / FAHRENHEIT_SCALE,
       TemperatureScale::Celsius => target.as_celsius() / CELSIUS_SCALE,
@@ -28,6 +28,15 @@ impl TemperatureScale {
     let scaled_target = u8::from_f64(raw_target.round())
         .ok_or_else(|| anyhow!("Cannot scale {raw_target}"))?;
     Ok(SetTemperature { raw_value: scaled_target })
+  }
+
+  pub fn new_protocol_temperature(&self, target: Temperature) -> anyhow::Result<ProtocolTemperature> {
+    let set_temp = self.new_set_temperature(&target)?;
+    Ok(ProtocolTemperature {
+      raw_scale: self.clone(),
+      raw_value: set_temp.raw_value,
+      temperature: target,
+    })
   }
 }
 

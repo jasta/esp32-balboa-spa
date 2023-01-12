@@ -167,7 +167,7 @@ impl MockSpaState {
 
 
 #[derive(Debug)]
-struct RuntimeStatus {
+pub struct RuntimeStatus {
   spa_mode: SpaState,
   init_mode: InitializationMode,
   current_temperature: CurrentTemperatureState,
@@ -202,7 +202,7 @@ impl UserSettings {
 }
 
 #[derive(Debug)]
-struct UserSettingsStatus {
+pub struct UserSettingsStatus {
   time: ProtocolTime,
   temperature_scale: TemperatureScale,
   temperature_range: TemperatureRange,
@@ -227,7 +227,7 @@ impl MockHardware {
 }
 
 #[derive(Debug)]
-struct HardwareStatus {
+pub struct HardwareStatus {
   pumps: Vec<ParsedEnum<PumpStatus, u8>>,
   blower: ParsedEnum<RelayStatus, u8>,
   lights: Vec<ParsedEnum<RelayStatus, u8>>,

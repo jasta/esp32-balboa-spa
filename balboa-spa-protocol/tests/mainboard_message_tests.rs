@@ -7,6 +7,7 @@ use balboa_spa_messages::framing::{FramedReader, FramedWriter};
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, PayloadParseError, SettingsRequestMessage};
 use balboa_spa_protocol::main_board::MainBoard;
+use balboa_spa_protocol::transport::Transport;
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {
@@ -14,7 +15,7 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   let main_board = MainBoard::new(PipeTransport::new(server));
   let (shutdown_handle, runner) = main_board.into_runner();
 
-  let run_thread = thread::spawn(move || { runner.run_loop(); });
+  let run_thread = thread::spawn(move || runner.run_loop());
 
   let mut reader_helper = ReaderHelper::new(raw_reader);
   let mut writer_helper = WriterHelper::new(raw_writer);
@@ -129,5 +130,11 @@ struct PipeTransport {
 impl PipeTransport {
   pub fn new(pair: (PipeReader, PipeWriter)) -> Self {
     Self { reader: pair.0, writer: pair.1 }
+  }
+}
+
+impl Transport<PipeReader, PipeWriter> for PipeTransport {
+  fn split(self) -> (PipeReader, PipeWriter) {
+    (self.reader, self.writer)
   }
 }

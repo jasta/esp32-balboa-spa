@@ -20,7 +20,6 @@ use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationR
 use balboa_spa_messages::message_types::SpaState::Running;
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use crate::mock_spa::{MockSpa, MockSpaState};
-use crate::timer::{PeriodicTimer, SimpleTimerService};
 use crate::transport::Transport;
 
 const DEFAULT_INIT_DELAY: Duration = Duration::from_millis(5000);
@@ -223,8 +222,8 @@ struct AuthorizedSender {
 
 impl<W: Write + Send> EventHandler<W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
-    for event in self.event_rx {
-      match event {
+    loop {
+      match self.event_rx.recv()? {
         Event::ReceivedMessage(bundle) => self.handle_message(bundle)?,
         Event::ReadError(e) => return Err(e),
         Event::TimerTick(timer_id) => self.handle_timer(timer_id)?,
@@ -421,6 +420,10 @@ impl<W: Write + Send> EventHandler<W> {
 
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
     let encoded_reply = self.framed_writer.encode(&send.message)?;
+
+    if let Some(authorized) = &self.state.authorized_sender {
+      warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
+    }
 
     let authorized_sender = if send.expect_reply {
       Some(AuthorizedSender {

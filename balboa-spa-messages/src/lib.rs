@@ -1,5 +1,6 @@
 //! See https://github.com/ccutrer/balboa_worldwide_app/wiki#serial-protocol
 
+pub use measurements;
 pub mod message;
 pub mod message_types;
 pub mod temperature;

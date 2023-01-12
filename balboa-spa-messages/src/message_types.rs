@@ -1,20 +1,21 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::io::{Cursor, Write};
+use std::io::{Cursor};
 use std::time::Duration;
 use anyhow::anyhow;
 use byteorder::{BigEndian, WriteBytesExt};
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
-use num_traits::{FromPrimitive, ToPrimitive};
-use bitvec::prelude::*;
+use num_traits::{ToPrimitive};
+use enum_kinds::EnumKind;
 use crate::channel::Channel;
 use crate::message::Message;
 use crate::parsed_enum::ParsedEnum;
 use crate::temperature::{ProtocolTemperature, SetTemperature, TemperatureScale};
 use crate::time::ProtocolTime;
 
-#[derive(Debug, Clone)]
+#[derive(EnumKind, Debug, Clone)]
+#[enum_kind(MessageTypeKind)]
 #[repr(u8)]
 pub enum MessageType {
   NewClientClearToSend() = 0x00,
@@ -66,7 +67,22 @@ pub enum MessageType {
   ToggleTestSettingRequest(ToggleTestMessage) = 0xe0,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Hash, Eq, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+pub enum Boolean {
+  False = 0,
+  True = 1,
+}
+
+impl From<Boolean> for bool {
+  fn from(value: Boolean) -> Self {
+    match value {
+      Boolean::False => false,
+      Boolean::True => false,
+    }
+  }
+}
+
+#[derive(FromPrimitive, ToPrimitive, Hash, PartialEq, Eq, Debug, Copy, Clone)]
 pub enum ItemCode {
   NormalOperation = 0x01,
   ClearNotification = 0x03,
@@ -120,14 +136,14 @@ pub struct StatusUpdateResponseV1 {
   pub clock_mode: ParsedEnum<ClockMode, u8>,
   pub needs_heat: bool,
   pub heating_state: ParsedEnum<HeatingState, u8>,
-  pub mister_on: ParsedEnum<bool, u8>,
+  pub mister_on: ParsedEnum<Boolean, u8>,
   pub set_temperature: ProtocolTemperature,
   pub pump_status: Vec<ParsedEnum<PumpStatus, u8>>,
-  pub circulation_pump_on: ParsedEnum<bool, u8>,
+  pub circulation_pump_on: ParsedEnum<Boolean, u8>,
   pub blower_status: ParsedEnum<RelayStatus, u8>,
   pub light_status: Vec<ParsedEnum<RelayStatus, u8>>,
-  pub reminder_set: ParsedEnum<bool, u8>,
-  pub notification_set: ParsedEnum<bool, u8>,
+  pub reminder_set: ParsedEnum<Boolean, u8>,
+  pub notification_set: ParsedEnum<Boolean, u8>,
 }
 
 #[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
@@ -207,16 +223,16 @@ impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
     cursor.write_u8(value.spa_state.as_raw())?;
     cursor.write_u8(value.init_mode.as_raw())?;
     cursor.write_u8(
-      value.current_temperature
+      value.current_temperature.as_ref()
         .map(|t| t.raw_value).unwrap_or(0xff))?;
-    cursor.write_u16(value.time.as_raw())?;
+    cursor.write_u16::<BigEndian>(value.time.as_raw())?;
     cursor.write_u8(value.heating_mode.as_raw())?;
     cursor.write_u8(value.reminder_type.as_raw())?;
-    let (sensorA, sensorB) = match value.spa_state.borrow_value() {
-      SpaState::AbTempsOn => {
+    let (sensorA, sensorB) = match value.spa_state.as_ref() {
+      Some(SpaState::AbTempsOn) => {
         (
           value.hold_timer.unwrap().to_minutes(),
-          value.current_temperature.unwrap().raw_value,
+          value.current_temperature.as_ref().unwrap().raw_value,
         )
       }
       _ => (0x0, 0x0)
@@ -277,13 +293,13 @@ pub struct FilterCycle {
 
 #[derive(Debug, Clone)]
 pub struct InformationResponseMessage {
-  software_version: SoftwareVersion,
-  system_model_number: String,
-  current_configuration_setup: u8,
-  configuration_signature: [u8; 4],
-  heater_voltage: ParsedEnum<HeaterVoltage, u8>,
-  heater_type: ParsedEnum<HeaterType, u8>,
-  dip_switch_settings: u16,
+  pub software_version: SoftwareVersion,
+  pub system_model_number: String,
+  pub current_configuration_setup: u8,
+  pub configuration_signature: [u8; 4],
+  pub heater_voltage: ParsedEnum<HeaterVoltage, u8>,
+  pub heater_type: ParsedEnum<HeaterType, u8>,
+  pub dip_switch_settings: u16,
 }
 
 impl From<&InformationResponseMessage> for Vec<u8> {
@@ -310,7 +326,7 @@ impl From<&PreferencesResponseMessage> for Vec<u8> {
 
 #[derive(Debug, Clone)]
 pub struct SoftwareVersion {
-  version: [u8; 4],
+  pub version: [u8; 4],
 }
 
 impl Display for SoftwareVersion {
@@ -559,11 +575,11 @@ impl TryFrom<MessageType> for Vec<u8> {
         vec![temperature.raw_value],
       MessageType::SetTimeRequest { time } => {
         let mut cursor = Cursor::new(Vec::with_capacity(2));
-        cursor.write_u16(time.as_raw())?;
+        cursor.write_u16::<BigEndian>(time.as_raw())?;
         cursor.into_inner()
       }
       MessageType::SettingsRequest(message) =>
-        Vec::<u8>::from(message),
+        Vec::<u8>::from(&message),
       MessageType::FilterCycles { cycles } => {
         return Err(PayloadEncodeError::NotSupported)
       }
@@ -587,7 +603,6 @@ impl TryFrom<MessageType> for Vec<u8> {
         mac.to_vec(),
       MessageType::ToggleTestSettingRequest(message) =>
         vec![message.to_u8().unwrap()],
-      _ => return Err(PayloadEncodeError::NotSupported),
     };
     Ok(result)
   }
@@ -602,7 +617,7 @@ pub enum PayloadParseError {
   UnexpectedEof(#[from] io::Error),
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
+#[derive(thiserror::Error, Debug)]
 pub enum PayloadEncodeError {
   #[error("Generic I/O error")]
   GenericIoError(#[from] io::Error),

@@ -1,7 +1,7 @@
 //! Protocol definition as reverse engineered and documented here:
 //! https://github.com/ccutrer/balboa_worldwide_app/wiki#physical-layer
 
-use std::fmt::{Debug, Formatter, Write};
+use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Cursor, Read};
 

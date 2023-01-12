@@ -14,3 +14,4 @@ balboa-spa-messages = { path = "../balboa-spa-messages" }
 
 [dev-dependencies]
 env_logger = "0.10.0"
+pipe = "0.4.0"

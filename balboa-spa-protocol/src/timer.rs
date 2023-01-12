@@ -1,6 +1,5 @@
 use std::time::Duration;
 use std::fmt::Debug;
-use anyhow::anyhow;
 
 pub trait SimpleTimerService: ErrorType {
   type Timer: OnceTimer<Error=Self::Error> + PeriodicTimer<Error=Self::Error> + 'static;

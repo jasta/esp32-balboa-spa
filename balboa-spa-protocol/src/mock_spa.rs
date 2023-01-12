@@ -1,7 +1,8 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
+use balboa_spa_messages::measurements;
 use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::{ClockMode, FilterMode, HeatingMode, HeatingState, InitializationMode, ItemCode, MessageType, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
+use balboa_spa_messages::message_types::{Boolean, ClockMode, FilterMode, HeatingMode, HeatingState, InitializationMode, ItemCode, MessageType, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
 use balboa_spa_messages::message_types::InitializationMode::Reminder;
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use balboa_spa_messages::temperature::{ProtocolTemperature, Temperature, TemperatureScale};
@@ -27,7 +28,7 @@ impl Default for MockSpa {
         temp_range: TemperatureRange::High,
         clock_mode: ClockMode::Hour12,
         temperature_scale: TemperatureScale::Celsius,
-        set_temperature: measurements::Temperature::new(),
+        set_temperature: Temperature::from_celsius(39.5),
       }
     }
   }
@@ -86,10 +87,20 @@ impl MockSpa {
     let run_status = self.run_state.as_status();
     let hw_status = self.hardware.as_status();
     let user_status = self.settings.as_status();
+
+    let current_temperature = match run_status.current_temperature {
+      CurrentTemperatureState::Unknown => None,
+      CurrentTemperatureState::Low => {
+        Some(user_status.temperature_scale
+            .new_protocol_temperature(Temperature::from_celsius(20.0)).unwrap())
+      },
+      CurrentTemperatureState::AtTarget => Some(user_status.set_temperature.clone()),
+    };
+
     let status = StatusUpdateResponseV1 {
       spa_state: ParsedEnum::new(run_status.spa_mode),
       init_mode: ParsedEnum::new(run_status.init_mode),
-      current_temperature: None, // TODO!
+      current_temperature,
       time: user_status.time,
       heating_mode: ParsedEnum::new(run_status.heating_mode),
       reminder_type: ParsedEnum::new(ReminderType::None),
@@ -100,14 +111,14 @@ impl MockSpa {
       clock_mode: ParsedEnum::new(user_status.clock_mode),
       needs_heat: run_status.needs_heat,
       heating_state: ParsedEnum::new(run_status.heating_state),
-      mister_on: ParsedEnum::new(false),
+      mister_on: ParsedEnum::new(Boolean::False),
       set_temperature: user_status.set_temperature,
       pump_status: hw_status.pumps,
-      circulation_pump_on: ParsedEnum::new(false),
+      circulation_pump_on: ParsedEnum::new(Boolean::False),
       blower_status: hw_status.blower,
       light_status: hw_status.lights,
-      reminder_set: ParsedEnum::new(false),
-      notification_set: ParsedEnum::new(false),
+      reminder_set: ParsedEnum::new(Boolean::False),
+      notification_set: ParsedEnum::new(Boolean::False),
     };
     StatusUpdateMessage {
       v1: status,
@@ -124,7 +135,7 @@ impl MockSpaState {
         RuntimeStatus {
           spa_mode: SpaState::Initializing,
           init_mode: InitializationMode::PrimingMode,
-          current_temperature: None,
+          current_temperature: CurrentTemperatureState::Unknown,
           heating_mode: HeatingMode::Rest,
           needs_heat: true,
           heating_state: HeatingState::Off,
@@ -134,7 +145,7 @@ impl MockSpaState {
         RuntimeStatus {
           spa_mode: SpaState::Running,
           init_mode: InitializationMode::Idle,
-          current_temperature: Some(Temperature::new()),
+          current_temperature: CurrentTemperatureState::Low,
           heating_mode: HeatingMode::Ready,
           needs_heat: true,
           heating_state: HeatingState::Heating,
@@ -144,7 +155,7 @@ impl MockSpaState {
         RuntimeStatus {
           spa_mode: SpaState::HoldMode,
           init_mode: InitializationMode::Idle,
-          current_temperature: Some(Temperature::new()),
+          current_temperature: CurrentTemperatureState::AtTarget,
           heating_mode: HeatingMode::ReadyInRest,
           needs_heat: false,
           heating_state: HeatingState::HeatWaiting,
@@ -159,10 +170,17 @@ impl MockSpaState {
 struct RuntimeStatus {
   spa_mode: SpaState,
   init_mode: InitializationMode,
-  current_temperature: Option<Temperature>,
+  current_temperature: CurrentTemperatureState,
   heating_mode: HeatingMode,
   needs_heat: bool,
   heating_state: HeatingState,
+}
+
+#[derive(Debug, Clone)]
+pub enum CurrentTemperatureState {
+  Unknown,
+  Low,
+  AtTarget,
 }
 
 impl UserSettings {
@@ -175,6 +193,7 @@ impl UserSettings {
         self.set_temperature.clone()).unwrap();
     UserSettingsStatus {
       time,
+      temperature_scale: self.temperature_scale.clone(),
       temperature_range: self.temp_range.clone(),
       clock_mode: self.clock_mode.clone(),
       set_temperature,
@@ -185,16 +204,13 @@ impl UserSettings {
 #[derive(Debug)]
 struct UserSettingsStatus {
   time: ProtocolTime,
+  temperature_scale: TemperatureScale,
   temperature_range: TemperatureRange,
   clock_mode: ClockMode,
   set_temperature: ProtocolTemperature,
 }
 
 impl MockHardware {
-  pub fn toggle(&mut self, item_code: ItemCode) {
-
-  }
-
   pub fn as_status(&self) -> HardwareStatus {
     let pumps = self.pumps.iter()
         .map(|d| ParsedEnum::new(d.status.clone()))

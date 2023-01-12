@@ -14,7 +14,7 @@ impl ProtocolTime {
 
   pub fn from_hm(hour: u8, minute: u8) -> Self {
     let secs = u64::from(minute) * 60 + u64::from(hour) * 60 * 60;
-    Self::from_duration(Duration::from_secs(secs).unwrap()).unwrap()
+    Self::from_duration(Duration::from_secs(secs)).unwrap()
   }
 
   pub fn as_duration(&self) -> Duration {
@@ -23,8 +23,8 @@ impl ProtocolTime {
 
   pub fn as_raw(&self) -> u16 {
     let mut result = 0u16;
-    result |= (self.hour << 8) & 0xff;
-    result |= self.minute & 0xff;
+    result |= u16::from(self.hour) << 8;
+    result |= u16::from(self.minute);
     result
   }
 

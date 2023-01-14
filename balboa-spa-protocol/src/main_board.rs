@@ -439,8 +439,16 @@ impl<W: Write + Send> EventHandler<W> {
           }
           None => {
             let message = match self.state.timer_tick {
-              1 => MessageType::NewClientClearToSend().to_message(Channel::MulticastChannelAssignment)?,
-              2 => MessageType::StatusUpdate(self.state.mock_spa.as_status()).to_message(Channel::MulticastBroadcast)?,
+              1 => {
+                SendMessage::expect_reply(
+                    MessageType::NewClientClearToSend()
+                        .to_message(Channel::MulticastChannelAssignment)?)
+              },
+              2 => {
+                SendMessage::no_reply(
+                    MessageType::StatusUpdate(self.state.mock_spa.as_status())
+                        .to_message(Channel::MulticastBroadcast)?)
+              },
               tick => {
                 let adjusted_tick = tick - 2;
                 let client_index = adjusted_tick % self.state.channels.len();
@@ -448,10 +456,10 @@ impl<W: Write + Send> EventHandler<W> {
                     .map_err(|_| {
                       HandlingError::FatalError("Overflowed total channels!".to_owned())
                     })?;
-                MessageType::ClearToSend().to_message(target)?
+                SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?)
               }
             };
-            self.send_message(SendMessage::expect_reply(message))?;
+            self.send_message(message)?;
           }
         }
       }

@@ -1,9 +1,14 @@
-//! [De/]Serializers for each individual message type.  There's a good amount of code
+//! [De/]Serializers for each individual message type.
+//!
+//! TODO1: There's a good amount of code
 //! duplication here in order to achieve convenient mapping between types and the protocol
 //! discriminant.  It looks like Rust is really lacking a way to do this elegantly, even with
 //! external crates like enum_kinds which don't support complex enum discriminants yet.  See:
 //!
 //! https://github.com/Soft/enum-kinds/pull/7#issuecomment-1381043346
+//!
+//! TODO2: Use binread/binwrite to greatly reduce boilerplate here, might even solve the enum-kinds
+//! problem!
 
 use std::fmt::{Debug, Display, Formatter};
 use std::io;

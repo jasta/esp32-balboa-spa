@@ -1,6 +1,8 @@
 use std::io::{Read, Write};
 use std::thread;
+use std::time::Duration;
 use anyhow::anyhow;
+use log::LevelFilter;
 use pipe::{PipeReader, PipeWriter};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framing::{FramedReader, FramedWriter};
@@ -11,10 +13,12 @@ use balboa_spa_protocol::transport::Transport;
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {
-  let _ = env_logger::builder().is_test(true).try_init();
+  let _ = env_logger::builder().filter_level(LevelFilter::Debug).is_test(true).try_init();
 
   let ((mut client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
-  let main_board = MainBoard::new(PipeTransport::new(server_in, server_out));
+  let main_board = MainBoard::new(PipeTransport::new(server_in, server_out))
+      .set_init_delay(Duration::from_secs(1))
+      .set_clear_to_send_window(Duration::MAX);
   let (shutdown_handle, runner) = main_board.into_runner();
 
   let run_thread = thread::Builder::new()

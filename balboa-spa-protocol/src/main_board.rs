@@ -11,7 +11,7 @@ use std::{mem, thread};
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use bimap::BiMap;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use timer::{Guard, Timer};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framing::{FramedReader, FramedWriter};
@@ -25,7 +25,7 @@ use crate::transport::Transport;
 const DEFAULT_INIT_DELAY: Duration = Duration::from_millis(5000);
 
 /// Amount of time before removing a client that refuses to acknowledge ClearToSend messages.
-const CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
+const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
 
 pub struct MainBoard<R, W> {
   framed_reader: FramedReader,
@@ -33,6 +33,7 @@ pub struct MainBoard<R, W> {
   raw_reader: R,
   raw_writer: W,
   init_delay: Duration,
+  clear_to_send_window: Duration,
 }
 
 impl<R, W> MainBoard<R, W>
@@ -50,11 +51,17 @@ where
       raw_reader,
       raw_writer,
       init_delay: DEFAULT_INIT_DELAY,
+      clear_to_send_window: DEFAULT_CLEAR_TO_SEND_WINDOW,
     }
   }
 
   pub fn set_init_delay(mut self, init_delay: Duration) -> Self {
     self.init_delay = init_delay;
+    self
+  }
+
+  pub fn set_clear_to_send_window(mut self, window: Duration) -> Self {
+    self.clear_to_send_window = window;
     self
   }
 
@@ -68,12 +75,14 @@ where
     let timer_setup = TimerSetup {
       timer_tx: tx.clone(),
       init_delay: self.init_delay,
+      clear_to_send_window: self.clear_to_send_window.clone(),
     };
     let event_handler = EventHandler {
       event_rx: rx,
       framed_writer: self.framed_writer,
       raw_writer: self.raw_writer,
       state: MainBoardState::default(),
+      clear_to_send_window: self.clear_to_send_window.clone(),
     };
 
     let shutdown_handle = ShutdownHandle { tx };
@@ -170,6 +179,7 @@ impl<R: Read + Send> MessageReader<R> {
 struct TimerSetup {
   timer_tx: SyncSender<Event>,
   init_delay: Duration,
+  clear_to_send_window: Duration,
 }
 
 impl TimerSetup {
@@ -204,6 +214,7 @@ struct EventHandler<W> {
   raw_writer: W,
   event_rx: Receiver<Event>,
   state: MainBoardState,
+  clear_to_send_window: Duration,
 }
 
 #[derive(Default)]
@@ -230,6 +241,7 @@ impl<W: Write + Send> EventHandler<W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       let event = self.event_rx.recv()?;
+      debug!("{event:?}");
       if let Err(e) = self.handle_event(event) {
         match e {
           HandlingError::ShutdownRequested => {
@@ -382,10 +394,10 @@ impl<W: Write + Send> EventHandler<W> {
                 format!("Received message on non-CTS channel={channel:?}, ignoring...")));
             }
             let elapsed = authorized_sender.authorized_at.elapsed();
-            if elapsed > CLEAR_TO_SEND_WINDOW {
+            if elapsed > self.clear_to_send_window {
               return Err(HandlingError::ClientNeedsReconnect(
                 format!("Received message on channel={channel:?} after {}s, maximum allowed is {}s, dropping client...",
-                    elapsed.as_secs(), CLEAR_TO_SEND_WINDOW.as_secs())));
+                    elapsed.as_secs(), self.clear_to_send_window.as_secs())));
             }
           }
           None => {
@@ -414,7 +426,12 @@ impl<W: Write + Send> EventHandler<W> {
 
         match &self.state.authorized_sender {
           Some(authorized) => {
-            if authorized.authorized_at.elapsed() > CLEAR_TO_SEND_WINDOW {
+            if authorized.authorized_at.elapsed() > self.clear_to_send_window {
+              error!(
+                "Authorized sender on channel={:?} timed out, clearing...",
+                authorized.channel);
+              self.state.authorized_sender = None;
+            } else {
               warn!(
                 "Skipping timer tick={}, active authorized sender on {:?}",
                 self.state.timer_tick, authorized.channel);
@@ -443,6 +460,7 @@ impl<W: Write + Send> EventHandler<W> {
   }
 
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
+    debug!("{send:?}");
     let encoded_reply = self.framed_writer.encode(&send.message)?;
 
     if let Some(authorized) = &self.state.authorized_sender {

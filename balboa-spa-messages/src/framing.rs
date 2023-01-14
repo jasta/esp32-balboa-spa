@@ -1,5 +1,5 @@
 use crc::{Algorithm, Crc};
-use log::{debug, error, info, warn};
+use log::{error, info, trace, warn};
 use crate::message::{EncodeError, Message};
 
 #[derive(Debug)]
@@ -140,7 +140,7 @@ impl FramedReader {
   fn move_to_state(&mut self, new_state: ReaderState) {
     let old_state = &self.state;
     if old_state != &new_state {
-      debug!("Moving from {old_state:?} to {new_state:?}...");
+      trace!("Moving from {old_state:?} to {new_state:?}...");
       if new_state == ReaderState::LostPlace {
         let errors = self.frames_with_errors;
         warn!("Communication error ({errors} total so far!) in state={old_state:?}, trying to regain stream...");

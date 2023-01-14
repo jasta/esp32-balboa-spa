@@ -8,3 +8,4 @@ pub mod framing;
 pub mod channel;
 pub mod parsed_enum;
 pub mod time;
+mod array_utils;

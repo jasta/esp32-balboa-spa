@@ -106,14 +106,20 @@ pub struct Runner<R, W> {
 
 impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
-    let timer_hold = self.timer_setup.setup();
+    let timer_hold = self.timer_setup.setup()?;
 
     // Order of the handles matters as this determines which loop will be prioritized to yield
     // the error from the main run_loop function.  EventHandler is strongly preferred as it has
     // more interesting handling logic and errors.
     let handles = [
-      thread::spawn(move || self.event_handler.run_loop()),
-      thread::spawn(move || self.message_reader.run_loop().map_err(anyhow::Error::msg)),
+      thread::Builder::new()
+          .name("EventHandler".into())
+          .spawn(move || self.event_handler.run_loop())
+          .unwrap(),
+      thread::Builder::new()
+          .name("MessageReader".into())
+          .spawn(move || self.message_reader.run_loop().map_err(anyhow::Error::msg))
+          .unwrap(),
     ];
 
     let results: Vec<_> = handles.into_iter()
@@ -223,17 +229,33 @@ struct AuthorizedSender {
 impl<W: Write + Send> EventHandler<W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
-      match self.event_rx.recv()? {
-        Event::ReceivedMessage(bundle) => self.handle_message(bundle)?,
-        Event::ReadError(e) => return Err(e),
-        Event::TimerTick(timer_id) => self.handle_timer(timer_id)?,
-        Event::InitFinished => {
-          self.state.mock_spa.run_state = MockSpaState::Heating;
-        },
-        Event::Shutdown => break,
+      let event = self.event_rx.recv()?;
+      if let Err(e) = self.handle_event(event) {
+        match e {
+          HandlingError::ShutdownRequested => {
+            info!("Graceful shutdown requested...");
+            break
+          },
+          _ => error!("Got {e:?}"),
+        }
       }
     }
 
+    Ok(())
+  }
+
+  fn handle_event(&mut self, event: Event) -> Result<(), HandlingError> {
+    match event {
+      Event::ReceivedMessage(bundle) => self.handle_message(bundle)?,
+      Event::ReadError(e) => {
+        return Err(HandlingError::FatalError(format!("Read error: {e:?}")))
+      }
+      Event::TimerTick(timer_id) => self.handle_timer(timer_id)?,
+      Event::InitFinished => {
+        self.state.mock_spa.run_state = MockSpaState::Heating;
+      },
+      Event::Shutdown => return Err(HandlingError::ShutdownRequested),
+    }
     Ok(())
   }
 
@@ -261,18 +283,20 @@ impl<W: Write + Send> EventHandler<W> {
           None => {
             let channel = Channel::new_client_channel(channels.len())
                 .map_err(|_| HandlingError::ClientNeedsReconnect("channel overflow".to_owned()))?;
+            info!("Allocated new channel={channel:?}");
             channels.insert(record, channel.clone());
             channel
           }
         };
-        Some(SendMessage::expect_reply(MessageType::ChannelAssignmentResponse {
+        Some(SendMessage::expect_reply_on_channel(MessageType::ChannelAssignmentResponse {
           channel: selected_channel,
           client_hash,
-        }.to_message(Channel::MulticastChannelAssignment)?))
+        }.to_message(Channel::MulticastChannelAssignment)?, selected_channel))
       }
       MessageType::ChannelAssignmentAck() => {
         // Do nothing, we assume success with the potential side effect of accidentally
         // running out of slots if we get too many missed channel assignment messages.
+        info!("Got channel assignment ack on channel={src_channel:?}");
         None
       }
       MessageType::NothingToSend() => {
@@ -425,13 +449,14 @@ impl<W: Write + Send> EventHandler<W> {
       warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
     }
 
-    let authorized_sender = if send.expect_reply {
-      Some(AuthorizedSender {
-        authorized_at: Instant::now(),
-        channel: send.message.channel.clone(),
-      })
-    } else {
-      None
+    let authorized_sender = match send.expect_reply_on {
+      Some(channel) => {
+        Some(AuthorizedSender {
+          authorized_at: Instant::now(),
+          channel,
+        })
+      }
+      None => None,
     };
     self.state.authorized_sender = authorized_sender;
 
@@ -458,6 +483,9 @@ enum HandlingError {
 
   #[error("Client-specific fatal error, may never be able to fully communicate without software updates: {0}")]
   ClientUnsupported(String),
+
+  #[error("Graceful shutdown requested")]
+  ShutdownRequested,
 }
 
 impl From<PayloadEncodeError> for HandlingError {
@@ -510,16 +538,21 @@ impl TimeSensitiveMessage {
 #[derive(Debug)]
 pub struct SendMessage {
   message: Message,
-  expect_reply: bool,
+  expect_reply_on: Option<Channel>,
 }
 
 impl SendMessage {
   pub fn expect_reply(message: Message) -> Self {
-    Self { message, expect_reply: true }
+    let channel = message.channel.clone();
+    Self { message, expect_reply_on: Some(channel) }
+  }
+
+  pub fn expect_reply_on_channel(message: Message, channel: Channel) -> Self {
+    Self { message, expect_reply_on: Some(channel) }
   }
 
   pub fn no_reply(message: Message) -> Self {
-    Self { message, expect_reply: false }
+    Self { message, expect_reply_on: None }
   }
 }
 

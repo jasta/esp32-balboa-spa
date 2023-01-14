@@ -1,5 +1,11 @@
 use num_traits::{FromPrimitive, ToPrimitive};
 
+/// Attempt at a type-safe way of preserving the original raw value so that it could be inspected
+/// in the event that the enum value is not known locally.  In hindsight, I think this is massive
+/// overkill for a protocol like this one and we should abandon this in favor of just discarding
+/// entire structures if any part is unparseable.  Not ideal in more robust protocols, but
+/// this one is fairly rigidly defined and can be updated easily if errors are encountered in
+/// the wild.
 #[derive(Debug, Clone)]
 pub struct ParsedEnum<TYPE, PRIMITIVE> {
   parsed: Option<TYPE>,

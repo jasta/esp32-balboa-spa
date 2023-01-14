@@ -11,14 +11,19 @@ use balboa_spa_protocol::transport::Transport;
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {
-  let ((mut raw_reader, raw_writer), server) = (pipe::pipe(), pipe::pipe());
-  let main_board = MainBoard::new(PipeTransport::new(server));
+  let _ = env_logger::builder().is_test(true).try_init();
+
+  let ((mut client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
+  let main_board = MainBoard::new(PipeTransport::new(server_in, server_out));
   let (shutdown_handle, runner) = main_board.into_runner();
 
-  let run_thread = thread::spawn(move || runner.run_loop());
+  let run_thread = thread::Builder::new()
+      .name("ServerMainThread".into())
+      .spawn(move || runner.run_loop())
+      .unwrap();
 
-  let mut reader_helper = ReaderHelper::new(raw_reader);
-  let mut writer_helper = WriterHelper::new(raw_writer);
+  let mut reader_helper = ReaderHelper::new(client_in);
+  let mut writer_helper = WriterHelper::new(client_out);
 
   let _ = reader_helper.expect(
       Channel::MulticastChannelAssignment, MessageTypeKind::NewClientClearToSend)?;
@@ -49,7 +54,7 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   assert_eq!(model_number, "MockSpa 3000");
 
   shutdown_handle.request_shutdown();
-  run_thread.join().unwrap();
+  run_thread.join().unwrap()?;
 
   Ok(())
 }
@@ -128,8 +133,8 @@ struct PipeTransport {
 }
 
 impl PipeTransport {
-  pub fn new(pair: (PipeReader, PipeWriter)) -> Self {
-    Self { reader: pair.0, writer: pair.1 }
+  pub fn new(reader: PipeReader, writer: PipeWriter) -> Self {
+    Self { reader, writer }
   }
 }
 

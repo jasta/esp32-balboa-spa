@@ -13,10 +13,10 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::io::{Cursor, Read, Write};
-use std::string::{FromUtf16Error, FromUtf8Error};
+use std::string::FromUtf8Error;
 use std::time::Duration;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Error};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
@@ -926,18 +926,113 @@ pub enum LockRequestMessage {
 #[derive(Debug, Clone)]
 pub struct ConfigurationResponseMessage {
   pumps: Vec<ParsedEnum<PumpConfig, u8>>,
-  has_lights: Vec<ParsedEnum<bool, u8>>,
+  has_lights: Vec<ParsedEnum<Boolean, u8>>,
   has_blower: bool,
-  has_circular_pump: bool,
-  has_aux: Vec<ParsedEnum<bool, u8>>,
-  has_mister: ParsedEnum<bool, u8>,
+  has_circulation_pump: bool,
+  has_aux: Vec<ParsedEnum<Boolean, u8>>,
+  has_mister: ParsedEnum<Boolean, u8>,
+}
+
+#[derive(PackedStruct)]
+#[packed_struct(bit_numbering="msb0")]
+pub struct ConfigurationResponsePack {
+  #[packed_field(bits="0..=1", ty="enum")]
+  pump1: PumpConfig,
+
+  #[packed_field(bits="2..=3", ty="enum")]
+  pump2: PumpConfig,
+
+  #[packed_field(bits="4..=5", ty="enum")]
+  pump3: PumpConfig,
+
+  #[packed_field(bits="6..=7", ty="enum")]
+  pump4: PumpConfig,
+
+  #[packed_field(bits="8..=9", ty="enum")]
+  pump5: PumpConfig,
+
+  #[packed_field(bits="10..=11", ty="enum")]
+  pump6: PumpConfig,
+
+  #[packed_field(bits="16..=17", ty="enum")]
+  light1: RelayConfig,
+
+  #[packed_field(bits="22..=23", ty="enum")]
+  light2: RelayConfig,
+
+  #[packed_field(bits="24..=25", ty="enum")]
+  blower: RelayConfig,
+  
+  #[packed_field(bits="31", ty="enum")]
+  circulation_pump: RelayConfig,
+
+  #[packed_field(bits="32", ty="enum")]
+  aux1: RelayConfig,
+
+  #[packed_field(bits="33", ty="enum")]
+  aux2: RelayConfig,
+
+  #[packed_field(bits="36..=37", ty="enum")]
+  mister: RelayConfig,
+
+  #[packed_field(bits="40..=47")]
+  unknown: u8,
 }
 
 impl TryFrom<&ConfigurationResponseMessage> for Vec<u8> {
   type Error = PayloadEncodeError;
 
   fn try_from(value: &ConfigurationResponseMessage) -> Result<Self, Self::Error> {
-    todo!()
+    let mut pumps = [PumpConfig::None; 6];
+    for (i, val) in pumps.iter_mut().enumerate() {
+      if let Some(pump) = value.pumps.get(i) {
+        *val = PumpConfig::from_primitive(pump.as_raw()).unwrap_or(PumpConfig::None);
+      }
+    }
+
+    let mut lights = [RelayConfig::None; 2];
+    for (i, val) in lights.iter_mut().enumerate() {
+      if let Some(light) = value.has_lights.get(i) {
+        *val = RelayConfig::from_primitive(light.as_raw()).unwrap_or(RelayConfig::None);
+      }
+    }
+
+    let mut aux = [RelayConfig::None; 2];
+    for (i, val) in aux.iter_mut().enumerate() {
+      if let Some(aux) = value.has_aux.get(i) {
+        *val = RelayConfig::from_primitive(aux.as_raw()).unwrap_or(RelayConfig::None);
+      }
+    }
+
+    let blower = RelayConfig::from(Boolean::from(value.has_blower));
+    let circulation_pump = RelayConfig::from(Boolean::from(value.has_circulation_pump));
+
+    // Maybe something to do with circulation pump??
+    let unknown = match value.has_circulation_pump {
+      true => 0x68,
+      false => 0x00,
+    };
+
+    let packed_struct = ConfigurationResponsePack {
+      pump1: pumps[0],
+      pump2: pumps[1],
+      pump3: pumps[2],
+      pump4: pumps[3],
+      pump5: pumps[4],
+      pump6: pumps[5],
+      light1: lights[0],
+      light2: lights[1],
+      blower,
+      circulation_pump,
+      aux1: aux[0],
+      aux2: aux[1],
+      mister: RelayConfig::from_primitive(value.has_mister.as_raw()).unwrap(),
+      unknown,
+    };
+
+    Ok(packed_struct.pack()
+        .map_err(anyhow::Error::msg)?
+        .to_vec())
   }
 }
 
@@ -945,14 +1040,77 @@ impl TryFrom<&[u8]> for ConfigurationResponseMessage {
   type Error = PayloadParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    todo!()
+    let unpacked = ConfigurationResponsePack::unpack_from_slice(value)
+        .map_err(anyhow::Error::msg)?;
+
+    let pumps = [
+      unpacked.pump1,
+      unpacked.pump2,
+      unpacked.pump3,
+      unpacked.pump4,
+      unpacked.pump5,
+      unpacked.pump6,
+    ]
+        .into_iter()
+        .map(|p| ParsedEnum::new(p))
+        .collect();
+
+    let has_lights = [
+      unpacked.light1,
+      unpacked.light2,
+    ]
+        .into_iter()
+        .map(|l| ParsedEnum::new(Boolean::from(l)))
+        .collect();
+
+    let has_aux = [
+      unpacked.aux1,
+      unpacked.aux2,
+    ]
+        .into_iter()
+        .map(|a| ParsedEnum::new(Boolean::from(a)))
+        .collect();
+
+    Ok(Self {
+      pumps,
+      has_lights,
+      has_blower: Boolean::from(unpacked.blower).into(),
+      has_circulation_pump: Boolean::from(unpacked.circulation_pump).into(),
+      has_aux,
+      has_mister: ParsedEnum::new(Boolean::from(unpacked.mister)),
+    })
   }
 }
 
-#[derive(Debug, Clone)]
-pub struct PumpConfig {
-  present: bool,
-  num_speeds: u8,
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+pub enum PumpConfig {
+  None = 0x0,
+  Speed1 = 0x1,
+  Speed2 = 0x2,
+}
+
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+pub enum RelayConfig {
+  None = 0,
+  Present = 1,
+}
+
+impl From<Boolean> for RelayConfig {
+  fn from(value: Boolean) -> Self {
+    match value {
+      Boolean::True => RelayConfig::Present,
+      Boolean::False => RelayConfig::None,
+    }
+  }
+}
+
+impl From<RelayConfig> for Boolean {
+  fn from(value: RelayConfig) -> Self {
+    match value {
+      RelayConfig::Present => Boolean::True,
+      RelayConfig::None => Boolean::False,
+    }
+  }
 }
 
 #[derive(Debug, Clone)]

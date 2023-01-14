@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
@@ -29,38 +31,65 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   let mut reader_helper = ReaderHelper::new(client_in);
   let mut writer_helper = WriterHelper::new(client_out);
 
-  let _ = reader_helper.expect(
-      Channel::MulticastChannelAssignment, MessageTypeKind::NewClientClearToSend)?;
-  writer_helper.write(
-      MessageType::ChannelAssignmentRequest {
-        device_type: 0x0,
-        client_hash: 0xcafe,
-      }.to_message(Channel::MulticastChannelAssignment)?)?;
-  let channel_assignment = reader_helper.expect(
-      Channel::MulticastChannelAssignment, MessageTypeKind::ChannelAssignmentResponse)?;
-  let channel = match channel_assignment {
-    MessageType::ChannelAssignmentResponse { channel, client_hash } => channel,
-    _ => panic!(),
-  };
-  writer_helper.write(MessageType::ChannelAssignmentAck().to_message(channel)?)?;
-  let _ = reader_helper.expect(channel, MessageTypeKind::ClearToSend)?;
-  writer_helper.write(
-      MessageType::SettingsRequest(SettingsRequestMessage::Information)
-      .to_message(channel)?)?;
-  let info = reader_helper.expect(channel, MessageTypeKind::InformationResponse)?;
-  let model_number = match info {
-    MessageType::InformationResponse(message) => {
-      message.system_model_number
+  let mut state = GetVersionTestState::NeedChannel_WaitingCTS;
+  let mut my_channel = None;
+
+  // Note that we're using an event loop similar to the non-test implementations because it is more
+  // flexible and can detect stateful errors earlier, more clearly, and more consistently.
+  let board_model = loop {
+    let message = reader_helper.next_message()?;
+    match (message.channel, MessageType::try_from(&message)?) {
+      (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
+        assert_eq!(state, GetVersionTestState::NeedChannel_WaitingCTS);
+        writer_helper.write(
+          MessageType::ChannelAssignmentRequest {
+            device_type: 0x0,
+            client_hash: 0xcafe,
+          }.to_message(Channel::MulticastChannelAssignment)?)?;
+        state = GetVersionTestState::NeedChannel_WaitingAssignment;
+      }
+      (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
+        assert_eq!(state, GetVersionTestState::NeedChannel_WaitingAssignment);
+        my_channel = Some(channel);
+        writer_helper.write(MessageType::ChannelAssignmentAck().to_message(channel)?)?;
+        state = GetVersionTestState::NeedInfo_WaitingCTS;
+      }
+      (channel, MessageType::ClearToSend()) => {
+        assert_eq!(state, GetVersionTestState::NeedInfo_WaitingCTS);
+        assert_eq!(Some(channel), my_channel);
+        writer_helper.write(
+          MessageType::SettingsRequest(SettingsRequestMessage::Information)
+              .to_message(channel)?)?;
+        state = GetVersionTestState::NeedInfo_WaitingInfo;
+      }
+      (channel, MessageType::InformationResponse(info)) => {
+        assert_eq!(state, GetVersionTestState::NeedInfo_WaitingInfo);
+        assert_eq!(Some(channel), my_channel);
+        break info.system_model_number;
+      }
+      (channel, MessageType::StatusUpdate(status)) => {
+        // Ignore...
+      }
+      _ => panic!("Unhandled message={message:?}"),
     }
-    _ => panic!(),
   };
 
-  assert_eq!(model_number, "MockSpa 3000");
+  assert_eq!(board_model, "Mock Spa");
 
   shutdown_handle.request_shutdown();
+  drop(reader_helper);
+  drop(writer_helper);
   run_thread.join().unwrap()?;
 
   Ok(())
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum GetVersionTestState {
+  NeedChannel_WaitingCTS,
+  NeedChannel_WaitingAssignment,
+  NeedInfo_WaitingCTS,
+  NeedInfo_WaitingInfo,
 }
 
 #[derive(Debug)]

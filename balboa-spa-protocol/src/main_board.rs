@@ -127,7 +127,14 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
           .unwrap(),
       thread::Builder::new()
           .name("MessageReader".into())
-          .spawn(move || self.message_reader.run_loop().map_err(anyhow::Error::msg))
+          .spawn(move || {
+            if let Err(e) = self.message_reader.run_loop() {
+              // Don't forward these errors to the caller, the event handler will have already
+              // converted it into something coherent.
+              warn!("Message reader yielded: {e}");
+            }
+            Ok(())
+          })
           .unwrap(),
     ];
 
@@ -156,11 +163,18 @@ impl<R: Read + Send> MessageReader<R> {
     let mut buf = [0u8; 256];
     loop {
       match self.raw_reader.read(buf.as_mut_slice()) {
-        Ok(n) if n == 0 => self.message_tx.send(Event::ReadError(anyhow!("Unexpected EOF")))?,
+        Ok(n) if n == 0 => {
+          self.message_tx.send(Event::ReadError(anyhow!("Unexpected EOF")))?;
+          break
+        }
         Ok(n) => self.handle_data(&buf[0..n])?,
-        Err(e) => self.message_tx.send(Event::ReadError(anyhow!("{:?}", e)))?,
+        Err(e) => {
+          self.message_tx.send(Event::ReadError(anyhow!("{:?}", e)))?;
+          break
+        }
       }
     }
+    Ok(())
   }
 
   fn handle_data(&mut self, data: &[u8]) -> Result<(), SendError<Event>> {
@@ -248,6 +262,10 @@ impl<W: Write + Send> EventHandler<W> {
             info!("Graceful shutdown requested...");
             break
           },
+          HandlingError::FatalError(e) => {
+            error!("Fatal error: {e}");
+            return Err(anyhow!("Fatal error: {e}"));
+          }
           _ => error!("Got {e:?}"),
         }
       }
@@ -333,7 +351,7 @@ impl<W: Write + Send> EventHandler<W> {
           SettingsRequestMessage::Information => {
             Some(SendMessage::no_reply(MessageType::InformationResponse(InformationResponseMessage {
               software_version: SoftwareVersion { version: [100, 210, 6, 0] },
-              system_model_number: "MockSpa 3000".to_owned(),
+              system_model_number: "Mock Spa".to_owned(),
               current_configuration_setup: 0,
               configuration_signature: [ 1, 2, 3, 4 ],
               heater_voltage: ParsedEnum::new(HeaterVoltage::V240),

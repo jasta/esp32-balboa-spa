@@ -11,14 +11,16 @@ use std::{mem, thread};
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use bimap::BiMap;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, Level, log, trace, warn};
+use num_traits::FromPrimitive;
 use timer::{Guard, Timer};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framing::{FramedReader, FramedWriter};
 use balboa_spa_messages::message::{EncodeError, Message};
-use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
+use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, MessageTypeKind, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
 use balboa_spa_messages::message_types::SpaState::Running;
 use balboa_spa_messages::parsed_enum::ParsedEnum;
+use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::transport::Transport;
 
@@ -38,8 +40,8 @@ pub struct MainBoard<R, W> {
 
 impl<R, W> MainBoard<R, W>
 where
-    R: Read + Send + Sync,
-    W: Write + Send + Sync,
+    R: Read + Send,
+    W: Write + Send,
 {
   pub fn new(transport: impl Transport<R, W>) -> Self {
     let framed_reader = FramedReader::new();
@@ -75,14 +77,15 @@ where
     let timer_setup = TimerSetup {
       timer_tx: tx.clone(),
       init_delay: self.init_delay,
-      clear_to_send_window: self.clear_to_send_window.clone(),
+      clear_to_send_window: self.clear_to_send_window,
     };
     let event_handler = EventHandler {
       event_rx: rx,
       framed_writer: self.framed_writer,
       raw_writer: self.raw_writer,
+      message_logger: MessageLogger::default(),
       state: MainBoardState::default(),
-      clear_to_send_window: self.clear_to_send_window.clone(),
+      clear_to_send_window: self.clear_to_send_window,
     };
 
     let shutdown_handle = ShutdownHandle { tx };
@@ -114,7 +117,7 @@ pub struct Runner<R, W> {
 }
 
 impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
-  pub fn run_loop(mut self) -> anyhow::Result<()> {
+  pub fn run_loop(self) -> anyhow::Result<()> {
     let timer_hold = self.timer_setup.setup()?;
 
     // Order of the handles matters as this determines which loop will be prioritized to yield
@@ -123,11 +126,15 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
     let handles = [
       thread::Builder::new()
           .name("EventHandler".into())
-          .spawn(move || self.event_handler.run_loop())
+          .spawn(move || {
+            debug!("EventHandler starting up...");
+            self.event_handler.run_loop()
+          })
           .unwrap(),
       thread::Builder::new()
           .name("MessageReader".into())
           .spawn(move || {
+            debug!("MessageReader starting up...");
             if let Err(e) = self.message_reader.run_loop() {
               // Don't forward these errors to the caller, the event handler will have already
               // converted it into something coherent.
@@ -138,6 +145,7 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
           .unwrap(),
     ];
 
+    debug!("MainBoard run loop active...");
     let results: Vec<_> = handles.into_iter()
         .map(|h| h.join())
         .collect();
@@ -145,7 +153,7 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
     drop(timer_hold);
 
     for result in results {
-      let _ = result.unwrap()?;
+      result.unwrap()?;
     }
 
     Ok(())
@@ -227,6 +235,7 @@ struct EventHandler<W> {
   framed_writer: FramedWriter,
   raw_writer: W,
   event_rx: Receiver<Event>,
+  message_logger: MessageLogger,
   state: MainBoardState,
   clear_to_send_window: Duration,
 }
@@ -255,7 +264,9 @@ impl<W: Write + Send> EventHandler<W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       let event = self.event_rx.recv()?;
-      debug!("{event:?}");
+
+      self.log_event(&event);
+
       if let Err(e) = self.handle_event(event) {
         match e {
           HandlingError::ShutdownRequested => {
@@ -272,6 +283,20 @@ impl<W: Write + Send> EventHandler<W> {
     }
 
     Ok(())
+  }
+
+  /// Log a received event, deciding which log level to use based on verbosity in practice in
+  /// the protocol.
+  fn log_event(&self, event: &Event) {
+    match event {
+      Event::ReceivedMessage(bundle) => {
+        self.message_logger.log(MessageDirection::Inbound, &bundle.message);
+      }
+      Event::ReadError(_) => error!("{event:?}"),
+      Event::InitFinished => info!("{event:?}"),
+      Event::TimerTick(_) => trace!("{event:?}"),
+      Event::Shutdown => debug!("{event:?}"),
+    }
   }
 
   fn handle_event(&mut self, event: Event) -> Result<(), HandlingError> {
@@ -458,26 +483,32 @@ impl<W: Write + Send> EventHandler<W> {
           None => {
             let message = match self.state.timer_tick {
               1 => {
-                SendMessage::expect_reply(
+                Some(SendMessage::no_reply(
                     MessageType::NewClientClearToSend()
-                        .to_message(Channel::MulticastChannelAssignment)?)
+                        .to_message(Channel::MulticastChannelAssignment)?))
               },
               2 => {
-                SendMessage::no_reply(
+                Some(SendMessage::no_reply(
                     MessageType::StatusUpdate(self.state.mock_spa.as_status())
-                        .to_message(Channel::MulticastBroadcast)?)
+                        .to_message(Channel::MulticastBroadcast)?))
               },
               tick => {
-                let adjusted_tick = tick - 2;
-                let client_index = adjusted_tick % self.state.channels.len();
-                let target = Channel::new_client_channel(client_index)
-                    .map_err(|_| {
-                      HandlingError::FatalError("Overflowed total channels!".to_owned())
-                    })?;
-                SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?)
+                if self.state.channels.is_empty() {
+                  None
+                } else {
+                  let adjusted_tick = tick - 2;
+                  let client_index = adjusted_tick % self.state.channels.len();
+                  let target = Channel::new_client_channel(client_index)
+                      .map_err(|_| {
+                        HandlingError::FatalError("Overflowed total channels!".to_owned())
+                      })?;
+                  Some(SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?))
+                }
               }
             };
-            self.send_message(message)?;
+            if let Some(message) = message {
+              self.send_message(message)?;
+            }
           }
         }
       }
@@ -486,7 +517,8 @@ impl<W: Write + Send> EventHandler<W> {
   }
 
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
-    debug!("{send:?}");
+    self.message_logger.log(MessageDirection::Outbound, &send.message);
+
     let encoded_reply = self.framed_writer.encode(&send.message)?;
 
     if let Some(authorized) = &self.state.authorized_sender {
@@ -585,7 +617,7 @@ pub struct SendMessage {
 
 impl SendMessage {
   pub fn expect_reply(message: Message) -> Self {
-    let channel = message.channel.clone();
+    let channel = message.channel;
     Self { message, expect_reply_on: Some(channel) }
   }
 

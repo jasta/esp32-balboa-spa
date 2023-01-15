@@ -1,14 +1,15 @@
+use std::ops::Deref;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use esp_idf_hal::gpio::{OutputPin, PinDriver, RTCPin};
-use esp_idf_hal::peripheral::Peripheral;
+use esp_idf_hal::gpio::{Output, OutputPin, Pin, PinDriver, RTCPin};
 use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
+use log::info;
 use balboa_spa_protocol::main_board::MainBoard;
-use crate::esp_uart_transport::{EspUartRx, EspUartTransport, EspUartTx};
+use crate::esp_uart_transport::{EspUartTransport};
 
 mod wifi;
 mod esp_uart_transport;
@@ -28,10 +29,16 @@ fn main() -> anyhow::Result<()> {
       peripherals.pins.gpio20,
       Some(peripherals.pins.gpio3))?;
 
-  let logic = MainBoard::new(transport);
+  info!("UART transport initialized");
 
-  let (_, runner) = logic.into_runner();
+  let logic = MainBoard::new(transport);
+  let (shutdown_handle, runner) = logic.into_runner();
+
+  info!("Main board setup complete, starting...");
   runner.run_loop()?;
+  info!("Exiting seemingly by request, though not sure how?");
+
+  drop(shutdown_handle);
 
   Ok(())
 }

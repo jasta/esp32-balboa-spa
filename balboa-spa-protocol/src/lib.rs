@@ -5,3 +5,4 @@ pub mod main_board;
 pub mod timer;
 pub mod transport;
 pub mod mock_spa;
+mod message_logger;

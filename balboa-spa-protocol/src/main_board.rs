@@ -206,21 +206,20 @@ struct TimerSetup {
 
 impl TimerSetup {
   pub fn setup(self) -> anyhow::Result<TimerHold> {
-    let ticks: Vec<(_, Box<dyn Fn() -> Event + Send>)> = vec![
-      (Duration::from_millis(1000 / 66), Box::new(|| Event::TimerTick(TimerId::Update66Hz))),
-      (self.init_delay, Box::new(|| Event::InitFinished)),
-    ];
+    let timer = Timer::new();
+    let mut guards = Vec::new();
 
-    let timer = Timer::with_capacity(ticks.len());
-    let mut guards = Vec::with_capacity(ticks.len());
-    for (interval, event_gen) in ticks {
-      let timer_tx = self.timer_tx.clone();
-      let converted_interval = chrono::Duration::from_std(interval)?;
-      let guard = timer.schedule_repeating(converted_interval, move || {
-        let _ = timer_tx.send(event_gen());
-      });
-      guards.push(guard);
-    }
+    let update66hz_tx = self.timer_tx.clone();
+    let guard = timer.schedule_repeating(chrono::Duration::from_std(Duration::from_millis(1000 / 66))?, move || {
+      let _ = update66hz_tx.send(Event::TimerTick(TimerId::Update66Hz));
+    });
+    guards.push(guard);
+
+    let init_tx = self.timer_tx.clone();
+    let guard = timer.schedule_with_delay(chrono::Duration::from_std(self.init_delay)?, move || {
+      let _ = init_tx.send(Event::InitFinished);
+    });
+    guards.push(guard);
 
     Ok(TimerHold { timer, guards })
   }

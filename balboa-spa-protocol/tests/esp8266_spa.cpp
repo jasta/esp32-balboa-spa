@@ -125,7 +125,7 @@ void Serial_flush(void) {
 // Original code was using mqtt_publish but if we just print to stderr we can capture that and use it
 // for debugging and test validation.
 void mqtt_publish(const char* topic, const char* message) {
-  fprintf(stderr, "%s:%s", topic, message);
+  fprintf(stderr, "%s:%s\n", topic, message);
 }
 
 void print_msg(CircularBuffer<uint8_t, 35> &data) {
@@ -134,7 +134,7 @@ void print_msg(CircularBuffer<uint8_t, 35> &data) {
   for (i = 0; i < data.size(); i++) {
     x = Q_in[i];
     if (x < 0x0A) s += "0";
-    s += x;
+    s += std::to_string(x);
     s += " ";
   }
   mqtt_publish("Spa/node/msg", s.c_str());

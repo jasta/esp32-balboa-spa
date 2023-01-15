@@ -209,9 +209,9 @@ impl TimerSetup {
     let timer = Timer::new();
     let mut guards = Vec::new();
 
-    let update66hz_tx = self.timer_tx.clone();
-    let guard = timer.schedule_repeating(chrono::Duration::from_std(Duration::from_millis(1000 / 66))?, move || {
-      let _ = update66hz_tx.send(Event::TimerTick(TimerId::Update66Hz));
+    let main_tick_tx = self.timer_tx.clone();
+    let guard = timer.schedule_repeating(chrono::Duration::from_std(Duration::from_millis(1000 / 32))?, move || {
+      let _ = main_tick_tx.send(Event::TimerTick(TimerId::Update32Hz));
     });
     guards.push(guard);
 
@@ -460,8 +460,8 @@ impl<W: Write + Send> EventHandler<W> {
 
   fn handle_timer(&mut self, timer_id: TimerId) -> Result<(), HandlingError> {
     match timer_id {
-      TimerId::Update66Hz => {
-        if self.state.timer_tick >= 67 {
+      TimerId::Update32Hz => {
+        if self.state.timer_tick >= 33 {
           self.state.timer_tick = 0;
         }
         self.state.timer_tick += 1;
@@ -631,5 +631,5 @@ impl SendMessage {
 
 #[derive(Debug)]
 enum TimerId {
-  Update66Hz,
+  Update32Hz,
 }

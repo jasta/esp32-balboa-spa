@@ -7,7 +7,11 @@
  * for mqtt publish messages which we can use to validate test results and debug issues.
  */
 
+#include <stdio.h>
+#include <string>
 #include <CircularBuffer.h>
+
+#define String std::string
 
 #define STRON String("ON").c_str()
 #define STROFF String("OFF").c_str()
@@ -84,13 +88,42 @@ struct {
 
 } SpaFilterSettings;
 
+void Serial_begin(void) {
+  freopen(NULL, "rb", stdin);
+  freopen(NULL, "rb", stdout);
+}
+
+bool Serial_available(void) {
+  return true;
+}
+
+uint8_t Serial_read(void) {
+  uint8_t c = 0;
+  fread(&c, sizeof(c), 1, stdin);
+  return c;
+}
+
+void Serial_write(uint8_t c) {
+  fwrite(&c, sizeof(c), 1, stdout);
+}
+
+void Serial_flush(void) {
+  fflush(stdout);
+}
+
+// Original code was using mqtt_publish but if we just print to stderr we can capture that and use it
+// for debugging and test validation.
+void mqtt_publish(const char* topic, const char* message) {
+  fprintf(stderr, "%s:%s", topic, message);
+}
+
 void print_msg(CircularBuffer<uint8_t, 35> &data) {
   String s;
   //for (i = 0; i < (Q_in[1] + 2); i++) {
   for (i = 0; i < data.size(); i++) {
     x = Q_in[i];
     if (x < 0x0A) s += "0";
-    s += String(x, HEX);
+    s += x;
     s += " ";
   }
   mqtt_publish("Spa/node/msg", s.c_str());
@@ -165,13 +198,13 @@ void decodeFault() {
   SpaFaultLog.daysAgo = Q_in[8];
   SpaFaultLog.hour = Q_in[9];
   SpaFaultLog.minutes = Q_in[10];
-  mqtt_publish("Spa/fault/Entries", String(SpaFaultLog.totEntry).c_str());
-  mqtt_publish("Spa/fault/Entry", String(SpaFaultLog.currEntry).c_str());
-  mqtt_publish("Spa/fault/Code", String(SpaFaultLog.faultCode).c_str());
+  mqtt_publish("Spa/fault/Entries", std::to_string(SpaFaultLog.totEntry).c_str());
+  mqtt_publish("Spa/fault/Entry", std::to_string(SpaFaultLog.currEntry).c_str());
+  mqtt_publish("Spa/fault/Code", std::to_string(SpaFaultLog.faultCode).c_str());
   mqtt_publish("Spa/fault/Message", SpaFaultLog.faultMessage.c_str());
-  mqtt_publish("Spa/fault/DaysAgo", String(SpaFaultLog.daysAgo).c_str());
-  mqtt_publish("Spa/fault/Hours", String(SpaFaultLog.hour).c_str());
-  mqtt_publish("Spa/fault/Minutes", String(SpaFaultLog.minutes).c_str());
+  mqtt_publish("Spa/fault/DaysAgo", std::to_string(SpaFaultLog.daysAgo).c_str());
+  mqtt_publish("Spa/fault/Hours", std::to_string(SpaFaultLog.hour).c_str());
+  mqtt_publish("Spa/fault/Minutes", std::to_string(SpaFaultLog.minutes).c_str());
   have_faultlog = 2;
   //mqtt_publish("Spa/debug/have_faultlog", "have the faultlog, #2");
 }
@@ -203,28 +236,28 @@ void decodeFilterSettings() {
 
   //Filter 1 time conversion
   if (SpaFilterSettings.filt1Hour < 10) s = "0"; else s = "";
-  s = String(SpaFilterSettings.filt1Hour) + ":";
+  s = std::to_string(SpaFilterSettings.filt1Hour) + ":";
   if (SpaFilterSettings.filt1Minute < 10) s += "0";
-  s += String(SpaFilterSettings.filt1Minute);
+  s += std::to_string(SpaFilterSettings.filt1Minute);
 
   if (SpaFilterSettings.filt1DurationHour < 10) d = "0"; else d = "";
-  d = String(SpaFilterSettings.filt1DurationHour) + ":";
+  d = std::to_string(SpaFilterSettings.filt1DurationHour) + ":";
   if (SpaFilterSettings.filt1DurationMinute < 10) d += "0";
-  d += String(SpaFilterSettings.filt1DurationMinute);
+  d += std::to_string(SpaFilterSettings.filt1DurationMinute);
 
   payld = "{\"start\":\""+s+"\",\"duration\":\""+d+"\"}";
   mqtt_publish("Spa/filter1/state", payld.c_str());
 
   //Filter 2 time conversion
   if (SpaFilterSettings.filt2Hour < 10) s = "0"; else s = "";
-  s += String(SpaFilterSettings.filt2Hour) + ":";
+  s += std::to_string(SpaFilterSettings.filt2Hour) + ":";
   if (SpaFilterSettings.filt2Minute < 10) s += "0";
-  s += String(SpaFilterSettings.filt2Minute);
+  s += std::to_string(SpaFilterSettings.filt2Minute);
 
   if (SpaFilterSettings.filt2DurationHour < 10) d = "0"; else d = "";
-  d += String(SpaFilterSettings.filt2DurationHour) + ":";
+  d += std::to_string(SpaFilterSettings.filt2DurationHour) + ":";
   if (SpaFilterSettings.filt2DurationMinute < 10) d += "0";
-  d += String(SpaFilterSettings.filt2DurationMinute);
+  d += std::to_string(SpaFilterSettings.filt2DurationMinute);
   if ((int)(SpaFilterSettings.filt2Enable) == 1) mqtt_publish("Spa/filter2_enabled/state", STRON); else mqtt_publish("Spa/filter2_enabled/state", STROFF);
 
 
@@ -250,20 +283,20 @@ void decodeSettings() {
   SpaConfig.aux1 = ((Q_in[9] & 0x01) != 0);
   SpaConfig.aux2 = ((Q_in[9] & 0x02) != 0);
   SpaConfig.temp_scale = Q_in[3] & 0x01; //Read temperature scale - 0 -> Farenheit, 1-> Celcius
-  mqtt_publish("Spa/config/pumps1", String(SpaConfig.pump1).c_str());
-  mqtt_publish("Spa/config/pumps2", String(SpaConfig.pump2).c_str());
-  mqtt_publish("Spa/config/pumps3", String(SpaConfig.pump3).c_str());
-  mqtt_publish("Spa/config/pumps4", String(SpaConfig.pump4).c_str());
-  mqtt_publish("Spa/config/pumps5", String(SpaConfig.pump5).c_str());
-  mqtt_publish("Spa/config/pumps6", String(SpaConfig.pump6).c_str());
-  mqtt_publish("Spa/config/light1", String(SpaConfig.light1).c_str());
-  mqtt_publish("Spa/config/light2", String(SpaConfig.light2).c_str());
-  mqtt_publish("Spa/config/circ", String(SpaConfig.circ).c_str());
-  mqtt_publish("Spa/config/blower", String(SpaConfig.blower).c_str());
-  mqtt_publish("Spa/config/mister", String(SpaConfig.mister).c_str());
-  mqtt_publish("Spa/config/aux1", String(SpaConfig.aux1).c_str());
-  mqtt_publish("Spa/config/aux2", String(SpaConfig.aux2).c_str());
-  mqtt_publish("Spa/config/temp_scale", String(SpaConfig.temp_scale).c_str());
+  mqtt_publish("Spa/config/pumps1", std::to_string(SpaConfig.pump1).c_str());
+  mqtt_publish("Spa/config/pumps2", std::to_string(SpaConfig.pump2).c_str());
+  mqtt_publish("Spa/config/pumps3", std::to_string(SpaConfig.pump3).c_str());
+  mqtt_publish("Spa/config/pumps4", std::to_string(SpaConfig.pump4).c_str());
+  mqtt_publish("Spa/config/pumps5", std::to_string(SpaConfig.pump5).c_str());
+  mqtt_publish("Spa/config/pumps6", std::to_string(SpaConfig.pump6).c_str());
+  mqtt_publish("Spa/config/light1", std::to_string(SpaConfig.light1).c_str());
+  mqtt_publish("Spa/config/light2", std::to_string(SpaConfig.light2).c_str());
+  mqtt_publish("Spa/config/circ", std::to_string(SpaConfig.circ).c_str());
+  mqtt_publish("Spa/config/blower", std::to_string(SpaConfig.blower).c_str());
+  mqtt_publish("Spa/config/mister", std::to_string(SpaConfig.mister).c_str());
+  mqtt_publish("Spa/config/aux1", std::to_string(SpaConfig.aux1).c_str());
+  mqtt_publish("Spa/config/aux2", std::to_string(SpaConfig.aux2).c_str());
+  mqtt_publish("Spa/config/temp_scale", std::to_string(SpaConfig.temp_scale).c_str());
   have_config = 2;
 }
 
@@ -489,15 +522,6 @@ void update_error(int err) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-int main(int argc, char** argv) {
-  setup();
-  while (true) {
-    loop();
-  }
-  return 0;
-}
-
-
 void setup() {
   Serial_begin();
 
@@ -685,6 +709,13 @@ void loop() {
   }
 }
 
+int main(int argc, char** argv) {
+  setup();
+  while (true) {
+    loop();
+  }
+  return 0;
+}
 
 inline uint8_t crc8(CircularBuffer<uint8_t, 35> &data) {
   unsigned long crc;
@@ -741,39 +772,8 @@ void rs485_send() {
   for (i = 0; i < Q_out.size(); i++)
     Serial_write(Q_out[i]);
 
-  Serial.flush();
+  Serial_flush();
 
   // DEBUG: print_msg(Q_out);
   Q_out.clear();
-}
-
-// ==================== TEST MODIFIED ====================
-
-void Serial_begin(void) {
-  freopen(NULL, "rb", stdin);
-  freopen(NULL, "rb", stdout);
-}
-
-bool Serial_available(void) {
-  return true;
-}
-
-uint8_t Serial_read(void) {
-  uint8_t c = 0;
-  fread(&c, sizeof(c), 1, stdin);
-  return c;
-}
-
-void Serial_write(uint8_t c) {
-  fwrite(&c, sizeof(c), 1, stdout);
-}
-
-void Serial_flush(void) {
-  fflush(stdout);
-}
-
-// Original code was using mqtt_publish but if we just print to stderr we can capture that and use it
-// for debugging and test validation.
-void mqtt_publish(const char* topic, const char* message) {
-  fprintf(stderr, "%s:%s", topic, message);
 }

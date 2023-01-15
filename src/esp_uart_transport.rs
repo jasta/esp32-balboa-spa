@@ -74,8 +74,7 @@ impl Transport<EspUartRx, EspUartTx> for EspUartTransport {
 
 impl std::io::Read for EspUartRx {
   fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    self.rx_driver.read(buf, BLOCK)
-        .map_err(err_to_std)
+    block!(rw_to_nb_std(self.rx_driver.read(buf, BLOCK)))
   }
 }
 
@@ -87,11 +86,11 @@ impl std::io::Write for EspUartTx {
         driver.set_high().map_err(err_to_std)?;
       }
     }
-    block!(self.tx_driver.write(buf).map_err(err_to_nb_std))
+    block!(rw_to_nb_std(self.tx_driver.write(buf)))
   }
 
   fn flush(&mut self) -> std::io::Result<()> {
-    block!(self.tx_driver.flush().map_err(err_to_nb_std))?;
+    block!(flush_to_nb_std(self.tx_driver.flush()))?;
     if let Some(driver) = &mut self.enable_driver {
       self.writing = false;
       driver.set_low().map_err(err_to_std)?;
@@ -100,10 +99,19 @@ impl std::io::Write for EspUartTx {
   }
 }
 
-fn err_to_nb_std(e: EspError) -> nb::Error<std::io::Error> {
-  match e.code() {
-    ESP_ERR_TIMEOUT => nb::Error::WouldBlock,
-    _ => nb::Error::Other(err_to_std(e)),
+fn rw_to_nb_std(result: Result<usize, EspError>) -> nb::Result<usize, std::io::Error> {
+  match result {
+    Ok(0) => Err(nb::Error::WouldBlock),
+    Ok(n) => Ok(n),
+    Err(e) => Err(nb::Error::Other(err_to_std(e))),
+  }
+}
+
+fn flush_to_nb_std(result: Result<(), EspError>) -> nb::Result<(), std::io::Error> {
+  match result {
+    Ok(r) => Ok(r),
+    Err(e) if e.code() == ESP_ERR_TIMEOUT => Err(nb::Error::WouldBlock),
+    Err(e) => Err(nb::Error::Other(err_to_std(e))),
   }
 }
 

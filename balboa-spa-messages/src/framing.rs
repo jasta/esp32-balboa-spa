@@ -142,11 +142,11 @@ impl FramedReader {
     if old_state != &new_state {
       trace!("Moving from {old_state:?} to {new_state:?}...");
       if new_state == ReaderState::LostPlace {
+        self.frames_with_errors += 1;
         let errors = self.frames_with_errors;
         warn!("Communication error ({errors} total so far!) in state={old_state:?}, trying to regain stream...");
         self.num_bytes_expected = None;
         self.current_message.clear();
-        self.frames_with_errors += 1;
       } else if old_state == &ReaderState::LostPlace {
         info!("Regained stream successfully!");
       }

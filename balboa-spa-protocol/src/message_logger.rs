@@ -14,7 +14,8 @@ impl MessageLogger {
       Some(kind) => {
         match kind {
           MessageTypeKind::NewClientClearToSend |
-          MessageTypeKind::ClearToSend => {
+          MessageTypeKind::ClearToSend |
+          MessageTypeKind::StatusUpdate => {
             ("", Level::Debug)
           }
           _ => ("", Level::Info)

@@ -76,28 +76,24 @@ impl std::io::Read for EspUartRx {
   fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
     self.rx_driver.read(buf, BLOCK)
         .map_err(err_to_std)
-    }
   }
+}
 
 impl std::io::Write for EspUartTx {
   fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
     if let Some(driver) = &mut self.enable_driver {
       if !self.writing {
         self.writing = true;
-        debug!("Setting HIGH");
         driver.set_high().map_err(err_to_std)?;
       }
     }
-    debug!("Writing buf={buf:?}!");
     block!(self.tx_driver.write(buf).map_err(err_to_nb_std))
   }
 
   fn flush(&mut self) -> std::io::Result<()> {
-    debug!("Flushing serial");
     block!(self.tx_driver.flush().map_err(err_to_nb_std))?;
     if let Some(driver) = &mut self.enable_driver {
       self.writing = false;
-      debug!("Setting LOW");
       driver.set_low().map_err(err_to_std)?;
     }
     Ok(())

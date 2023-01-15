@@ -22,6 +22,13 @@ impl Channel {
     }
     Ok(Channel::from(result))
   }
+
+  pub fn to_magic_byte(&self) -> u8 {
+    match self {
+      Channel::MulticastBroadcast => 0xaf,
+      _ => 0xbf,
+    }
+  }
 }
 
 pub struct ChannelOverflow;

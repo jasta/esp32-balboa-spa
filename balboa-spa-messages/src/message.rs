@@ -31,11 +31,13 @@ impl Message {
 
 impl Debug for Message {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    let length = self.payload.len() + 5;
     let channel = u8::from(&self.channel);
+    let magic_byte = self.channel.to_magic_byte();
     let message_type = self.message_type;
-    write!(f, "{channel:#02X} {message_type:#02X} ")?;
+    write!(f, "{length:02X} {channel:02X} {magic_byte:02X} {message_type:02X} ")?;
     for b in &self.payload {
-      write!(f, "{b:#02X} ")?;
+      write!(f, "{b:02X} ")?;
     }
     Ok(())
   }
@@ -75,15 +77,10 @@ impl TryFrom<&Message> for Vec<u8> {
     let len = u8::try_from(5 + value.payload.len())
         .map_err(|_| EncodeError::MessageTooLong(value.payload.len()))?;
 
-    let magic_byte = match value.channel {
-      Channel::MulticastBroadcast => 0xaf,
-      _ => 0xbf,
-    };
-
     let mut result = Vec::with_capacity(4 + value.payload.len());
     result.push(len);
     result.push(u8::from(&value.channel));
-    result.push(magic_byte);
+    result.push(value.channel.to_magic_byte());
     result.push(value.message_type);
     result.extend(&value.payload);
     Ok(result)

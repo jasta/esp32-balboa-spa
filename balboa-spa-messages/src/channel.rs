@@ -31,6 +31,7 @@ impl Channel {
   }
 }
 
+#[derive(Debug)]
 pub struct ChannelOverflow;
 
 impl From<u8> for Channel {

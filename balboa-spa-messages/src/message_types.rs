@@ -16,7 +16,7 @@ use std::io::{Cursor, Read, Write};
 use std::string::FromUtf8Error;
 use std::time::Duration;
 
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;

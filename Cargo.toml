@@ -25,6 +25,7 @@ log = "0.4.17"
 anyhow = "1"
 thiserror = "1.0.38"
 balboa-spa-protocol = { path = "./balboa-spa-protocol" }
+#balboa-spa-messages = { path = "./balboa-spa-messages" }
 nb = "1.0.0"
 
 [build-dependencies]

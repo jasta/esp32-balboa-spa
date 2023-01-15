@@ -493,22 +493,20 @@ impl<W: Write + Send> EventHandler<W> {
       warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
     }
 
-    let authorized_sender = match send.expect_reply_on {
-      Some(channel) => {
-        Some(AuthorizedSender {
-          authorized_at: Instant::now(),
-          channel,
-        })
-      }
-      None => None,
-    };
+    let authorized_sender = send.expect_reply_on.map(|channel| AuthorizedSender {
+      authorized_at: Instant::now(),
+      channel,
+    });
     self.state.authorized_sender = authorized_sender;
 
     // Note that this is a blocking write, meaning that we don't have to worry about
     // clear-to-send timing if it takes too long since our timer simply won't tick until we
     // finish!
-    self.raw_writer.write_all(&encoded_reply)
-        .map_err(|e| HandlingError::FatalError(format!("Line write failure: {e:?}")))?;
+    let err_mapper = |e| {
+      HandlingError::FatalError(format!("Line write failure: {e:?}"))
+    };
+    self.raw_writer.write_all(&encoded_reply).map_err(err_mapper)?;
+    self.raw_writer.flush().map_err(err_mapper)?;
 
     Ok(())
   }

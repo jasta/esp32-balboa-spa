@@ -156,6 +156,7 @@ impl<W: Write> WriterHelper<W> {
   pub fn write(&mut self, message: Message) -> anyhow::Result<()> {
     let encoded = self.framed_writer.encode(&message)?;
     self.raw_writer.write_all(&encoded)?;
+    self.raw_writer.flush()?;
     Ok(())
   }
 }

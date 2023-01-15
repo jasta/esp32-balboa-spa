@@ -98,8 +98,8 @@ uint8_t bitRead(uint8_t byte, unsigned int bit_position) {
 }
 
 void Serial_begin(void) {
-  freopen(NULL, "rb", stdin);
-  freopen(NULL, "rb", stdout);
+//  freopen(NULL, "rb", stdin);
+//  freopen(NULL, "rb", stdout);
 }
 
 bool Serial_available(void) {
@@ -107,9 +107,11 @@ bool Serial_available(void) {
 }
 
 uint8_t Serial_read(void) {
-  uint8_t c = 0;
-  fread(&c, sizeof(c), 1, stdin);
-  return c;
+  int result = fgetc(stdin);
+  if (result < 0) {
+    exit(0);
+  }
+  return (uint8_t)result;
 }
 
 void Serial_write(uint8_t c) {

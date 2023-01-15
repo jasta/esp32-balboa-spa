@@ -24,9 +24,9 @@ fn main() -> anyhow::Result<()> {
   let event_loop = EspEventLoop::take()?;
 
   let transport = EspUartTransport::new(
-      peripherals.uart0,
-      peripherals.pins.gpio21,
-      peripherals.pins.gpio20,
+      peripherals.uart1,
+      peripherals.pins.gpio5,
+      peripherals.pins.gpio4,
       Some(peripherals.pins.gpio3))?;
 
   info!("UART transport initialized");

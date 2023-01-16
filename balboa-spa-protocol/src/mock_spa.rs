@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
 use balboa_spa_messages::measurements;
 use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::{Boolean, ClockMode, FilterMode, HeatingMode, HeatingState, InitializationMode, ItemCode, MessageType, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
+use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultCode, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, ItemCode, MessageType, PumpConfig, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
 use balboa_spa_messages::message_types::InitializationMode::Reminder;
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use balboa_spa_messages::temperature::{ProtocolTemperature, Temperature, TemperatureScale};
@@ -51,11 +51,15 @@ pub struct MockHardware {
 #[derive(Debug)]
 pub struct PumpDevice {
   pub status: PumpStatus,
+  pub capability: PumpConfig,
 }
 
 impl Default for PumpDevice {
   fn default() -> Self {
-    Self { status: PumpStatus::Off }
+    Self {
+      status: PumpStatus::Off,
+      capability: PumpConfig::Speed2,
+    }
   }
 }
 
@@ -124,6 +128,21 @@ impl MockSpa {
       v1: status,
       v2: None,
       v3: None,
+    }
+  }
+
+  pub fn as_configuration(&self) -> ConfigurationResponseMessage {
+    self.hardware.as_configuration()
+  }
+
+  pub fn as_fault_log(&self) -> FaultResponseMessage {
+    FaultResponseMessage {
+      total_entries: 0,
+      entry_number: 0,
+      fault_code: ParsedEnum::from_raw(0),
+      days_ago: 0,
+      time: ProtocolTime::from_hm(0, 0),
+      set_temperature: 0,
     }
   }
 }
@@ -222,6 +241,23 @@ impl MockHardware {
       pumps,
       blower: ParsedEnum::new(self.blower.status.clone()),
       lights,
+    }
+  }
+
+  fn as_configuration(&self) -> ConfigurationResponseMessage {
+    let pumps = self.pumps.iter()
+        .map(|p| ParsedEnum::new(p.capability))
+        .collect();
+    let has_lights = self.lights.iter()
+        .map(|l| ParsedEnum::new(Boolean::True))
+        .collect();
+    ConfigurationResponseMessage {
+      pumps,
+      has_lights,
+      has_blower: true,
+      has_circulation_pump: true,
+      has_aux: vec![],
+      has_mister: ParsedEnum::new(Boolean::False),
     }
   }
 }

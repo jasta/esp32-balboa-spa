@@ -15,10 +15,6 @@ use balboa_spa_protocol::transport::{StdTransport, Transport};
 fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   let _ = env_logger::builder().filter_level(LevelFilter::Debug).is_test(true).try_init();
 
-  for (key, value) in std::env::vars() {
-    println!("{key}={value}");
-  }
-
   let cmd_path = RunCBinaryHack::compile("esp8266_spa")?;
   let mut child = Command::new(cmd_path)
       .stdin(Stdio::piped())
@@ -30,8 +26,9 @@ fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   let mut server_in = child.stdout.take().unwrap();
   let mut client_debug = child.stderr.take().unwrap();
 
+  // TODO: Manually drive init timing for testing purposes
   let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_init_delay(Duration::from_secs(1));
+      .set_init_delay(Duration::from_secs(0));
   let (shutdown_handle, runner) = main_board.into_runner();
 
   let run_thread = thread::Builder::new()

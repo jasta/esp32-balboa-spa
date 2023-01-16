@@ -925,12 +925,12 @@ pub enum LockRequestMessage {
 
 #[derive(Debug, Clone)]
 pub struct ConfigurationResponseMessage {
-  pumps: Vec<ParsedEnum<PumpConfig, u8>>,
-  has_lights: Vec<ParsedEnum<Boolean, u8>>,
-  has_blower: bool,
-  has_circulation_pump: bool,
-  has_aux: Vec<ParsedEnum<Boolean, u8>>,
-  has_mister: ParsedEnum<Boolean, u8>,
+  pub pumps: Vec<ParsedEnum<PumpConfig, u8>>,
+  pub has_lights: Vec<ParsedEnum<Boolean, u8>>,
+  pub has_blower: bool,
+  pub has_circulation_pump: bool,
+  pub has_aux: Vec<ParsedEnum<Boolean, u8>>,
+  pub has_mister: ParsedEnum<Boolean, u8>,
 }
 
 #[derive(PackedStruct)]
@@ -1115,16 +1115,29 @@ impl From<RelayConfig> for Boolean {
 
 #[derive(Debug, Clone)]
 pub struct FaultResponseMessage {
-  total_entries: u8,
-  entry_number: u8,
-  fault_code: ParsedEnum<FaultCode, u8>,
+  pub total_entries: u8,
+  pub entry_number: u8,
+  pub fault_code: ParsedEnum<FaultCode, u8>,
+  pub days_ago: u8,
+  pub time: ProtocolTime,
+  pub set_temperature: u8, // <-- what's the scale!?!
 }
 
 impl TryFrom<&FaultResponseMessage> for Vec<u8> {
   type Error = PayloadEncodeError;
 
   fn try_from(value: &FaultResponseMessage) -> Result<Self, Self::Error> {
-    todo!()
+    let mut cursor = Cursor::new(Vec::new());
+    cursor.write_u8(value.total_entries)?;
+    cursor.write_u8(value.entry_number)?;
+    cursor.write_u8(value.fault_code.as_raw())?;
+    cursor.write_u8(value.days_ago)?;
+    cursor.write_u16::<BigEndian>(value.time.as_raw())?;
+    cursor.write_u8(0)?;
+    cursor.write_u8(value.set_temperature)?;
+    cursor.write_u8(0)?;
+    cursor.write_u8(0)?;
+    Ok(cursor.into_inner())
   }
 }
 
@@ -1132,7 +1145,26 @@ impl TryFrom<&[u8]> for FaultResponseMessage {
   type Error = PayloadParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-    todo!()
+    let mut cursor = Cursor::new(value);
+    let total_entries = cursor.read_u8()?;
+    let entry_number = cursor.read_u8()?;
+    let fault_code = ParsedEnum::from_raw(cursor.read_u8()?);
+    let days_ago = cursor.read_u8()?;
+    let hour = cursor.read_u8()?;
+    let minute = cursor.read_u8()?;
+    let time = ProtocolTime::from_hm(hour, minute);
+    let _ = cursor.read_u8()?;
+    let set_temperature = cursor.read_u8()?;
+    let _ = cursor.read_u8()?;
+    let _ = cursor.read_u8()?;
+    Ok(Self {
+      total_entries,
+      entry_number,
+      fault_code,
+      days_ago,
+      time,
+      set_temperature,
+    })
   }
 }
 
@@ -1212,11 +1244,13 @@ impl TryFrom<&Message> for MessageType {
       }
       MessageTypeKind::PreferencesResponse => todo!(),
       MessageTypeKind::SetPreferenceRequest => todo!(),
-      MessageTypeKind::FaultLogResponse => todo!(),
+      MessageTypeKind::FaultLogResponse =>
+        MessageType::FaultLogResponse(FaultResponseMessage::try_from(value.payload.as_slice())?),
       MessageTypeKind::ChangeSetupRequest => todo!(),
       MessageTypeKind::GfciTestResponse => todo!(),
       MessageTypeKind::LockRequest => todo!(),
-      MessageTypeKind::ConfigurationResponse => todo!(),
+      MessageTypeKind::ConfigurationResponse =>
+        MessageType::ConfigurationResponse(ConfigurationResponseMessage::try_from(value.payload.as_slice())?),
       MessageTypeKind::WifiModuleConfigurationResponse => todo!(),
       MessageTypeKind::ToggleTestSettingRequest => todo!(),
     };

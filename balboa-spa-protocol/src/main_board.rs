@@ -17,7 +17,7 @@ use timer::{Guard, Timer};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framing::{FramedReader, FramedWriter};
 use balboa_spa_messages::message::{EncodeError, Message};
-use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, MessageTypeKind, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
+use balboa_spa_messages::message_types::{ConfigurationResponseMessage, FaultResponseMessage, HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, MessageTypeKind, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
 use balboa_spa_messages::message_types::SpaState::Running;
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use crate::message_logger::{MessageDirection, MessageLogger};
@@ -382,6 +382,16 @@ impl<W: Write + Send> EventHandler<W> {
               heater_type: ParsedEnum::new(HeaterType::Standard),
               dip_switch_settings: 0,
             }).to_message(src_channel)?))
+          }
+          SettingsRequestMessage::Configuration => {
+            Some(SendMessage::no_reply(MessageType::ConfigurationResponse(
+              self.state.mock_spa.as_configuration()
+            ).to_message(src_channel)?))
+          }
+          SettingsRequestMessage::FaultLog { entry_num } => {
+            Some(SendMessage::no_reply(MessageType::FaultLogResponse(
+              self.state.mock_spa.as_fault_log()
+            ).to_message(src_channel)?))
           }
           n => {
             error!("Unhandled settings request: {n:?}");

@@ -7,7 +7,7 @@ use esp_idf_hal::gpio::{Output, OutputPin, Pin, PinDriver, RTCPin};
 use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
-use log::info;
+use log::{info, warn};
 use mock_mainboard_lib::main_board::MainBoard;
 use crate::esp_uart_transport::{EspUartTransport};
 
@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 
   info!("Main board setup complete, starting...");
   runner.run_loop()?;
-  info!("Exiting seemingly by request, though not sure how?");
+  warn!("Exiting seemingly by request, though not sure how?");
 
   drop(shutdown_handle);
 

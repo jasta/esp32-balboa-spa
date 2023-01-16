@@ -11,14 +11,14 @@ use balboa_spa_messages::framing::{FramedReader, FramedWriter};
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, PayloadParseError, SettingsRequestMessage};
 use balboa_spa_protocol::main_board::MainBoard;
-use balboa_spa_protocol::transport::Transport;
+use balboa_spa_protocol::transport::{StdTransport, Transport};
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {
   let _ = env_logger::builder().filter_level(LevelFilter::Debug).is_test(true).try_init();
 
   let ((mut client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
-  let main_board = MainBoard::new(PipeTransport::new(server_in, server_out))
+  let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
       .set_init_delay(Duration::from_secs(1))
       .set_clear_to_send_window(Duration::MAX);
   let (shutdown_handle, runner) = main_board.into_runner();
@@ -158,22 +158,5 @@ impl<W: Write> WriterHelper<W> {
     self.raw_writer.write_all(&encoded)?;
     self.raw_writer.flush()?;
     Ok(())
-  }
-}
-
-struct PipeTransport {
-  reader: PipeReader,
-  writer: PipeWriter,
-}
-
-impl PipeTransport {
-  pub fn new(reader: PipeReader, writer: PipeWriter) -> Self {
-    Self { reader, writer }
-  }
-}
-
-impl Transport<PipeReader, PipeWriter> for PipeTransport {
-  fn split(self) -> (PipeReader, PipeWriter) {
-    (self.reader, self.writer)
   }
 }

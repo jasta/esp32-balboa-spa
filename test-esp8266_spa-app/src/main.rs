@@ -1,3 +1,13 @@
+extern "C" {
+  fn setup();
+  fn r#loop();
+}
+
 fn main() {
-    todo!()
+  unsafe {
+    setup();
+    loop {
+      r#loop();
+    }
+  }
 }

@@ -16,6 +16,7 @@ balboa-spa-messages = { path = "../balboa-spa-messages" }
 [dev-dependencies]
 env_logger = "0.10.0"
 pipe = "0.4.0"
+assert_cmd = "2.0.8"
 
 [build-dependencies]
 cc = "1.0.78"

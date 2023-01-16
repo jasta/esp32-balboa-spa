@@ -24,6 +24,11 @@
 CircularBuffer<uint8_t, 35> Q_in;
 CircularBuffer<uint8_t, 35> Q_out;
 
+extern "C" {
+  void setup();
+  void loop();
+}
+
 uint8_t crc8();
 void ID_request();
 void ID_ack();
@@ -716,6 +721,7 @@ void loop() {
   }
 }
 
+#ifndef EXCLUDE_MAIN
 int main(int argc, char** argv) {
   setup();
   while (true) {
@@ -723,6 +729,7 @@ int main(int argc, char** argv) {
   }
   return 0;
 }
+#endif
 
 inline uint8_t crc8(CircularBuffer<uint8_t, 35> &data) {
   unsigned long crc;

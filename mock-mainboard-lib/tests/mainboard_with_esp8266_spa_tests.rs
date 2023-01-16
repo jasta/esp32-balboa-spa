@@ -8,8 +8,8 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use log::LevelFilter;
-use balboa_spa_protocol::main_board::MainBoard;
-use balboa_spa_protocol::transport::{StdTransport, Transport};
+use mock_mainboard_lib::main_board::MainBoard;
+use mock_mainboard_lib::transport::{StdTransport, Transport};
 
 #[test]
 fn esp8266_spa_hello_world() -> anyhow::Result<()> {

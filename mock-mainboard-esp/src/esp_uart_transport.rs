@@ -13,7 +13,7 @@ use esp_idf_sys::{ESP_ERR_TIMEOUT, EspError};
 use log::debug;
 use nb::block;
 
-use balboa_spa_protocol::transport::Transport;
+use mock_mainboard_lib::transport::Transport;
 
 pub struct EspUartTransport {
   uart_driver: UartDriver<'static>,

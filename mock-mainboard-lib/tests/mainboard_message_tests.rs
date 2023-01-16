@@ -10,8 +10,8 @@ use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framing::{FramedReader, FramedWriter};
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, PayloadParseError, SettingsRequestMessage};
-use balboa_spa_protocol::main_board::MainBoard;
-use balboa_spa_protocol::transport::{StdTransport, Transport};
+use mock_mainboard_lib::main_board::MainBoard;
+use mock_mainboard_lib::transport::{StdTransport, Transport};
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {

@@ -229,78 +229,78 @@ pub struct StatusUpdateResponseV1 {
 #[derive(PackedStruct)]
 #[packed_struct(bit_numbering="msb0")]
 pub struct StatusFlags9_14 {
-  #[packed_field(bits="0", ty="enum")]
-  temperature_scale: TemperatureScale,
-
-  #[packed_field(bits="1", ty="enum")]
-  clock_mode: ClockMode,
+  #[packed_field(bits="2")]
+  panel_locked: bool,
 
   #[packed_field(bits="3..=4", ty="enum")]
   filter_mode: FilterMode,
 
-  #[packed_field(bits="5")]
-  panel_locked: bool,
+  #[packed_field(bits="6", ty="enum")]
+  clock_mode: ClockMode,
 
-  #[packed_field(bits="10", ty="enum")]
-  temperature_range: TemperatureRange,
+  #[packed_field(bits="7", ty="enum")]
+  temperature_scale: TemperatureScale,
 
-  #[packed_field(bits="11")]
-  needs_heat: bool,
-
-  #[packed_field(bits="12..=13", ty="enum")]
+  #[packed_field(bits="10..=11", ty="enum")]
   heating_state: HeatingState,
 
+  #[packed_field(bits="12")]
+  needs_heat: bool,
+
+  #[packed_field(bits="13", ty="enum")]
+  temperature_range: TemperatureRange,
+
   #[packed_field(bits="16..=17", ty="enum")]
-  pump1_status: PumpStatus,
-
-  #[packed_field(bits="18..=19", ty="enum")]
-  pump2_status: PumpStatus,
-
-  #[packed_field(bits="20..=21", ty="enum")]
-  pump3_status: PumpStatus,
-
-  #[packed_field(bits="22..=23", ty="enum")]
   pump4_status: PumpStatus,
 
-  #[packed_field(bits="24..=25", ty="enum")]
-  pump5_status: PumpStatus,
+  #[packed_field(bits="18..=19", ty="enum")]
+  pump3_status: PumpStatus,
 
-  #[packed_field(bits="26..=27", ty="enum")]
+  #[packed_field(bits="20..=21", ty="enum")]
+  pump2_status: PumpStatus,
+
+  #[packed_field(bits="22..=23", ty="enum")]
+  pump1_status: PumpStatus,
+
+  #[packed_field(bits="24..=25", ty="enum")]
   pump6_status: PumpStatus,
 
-  #[packed_field(bits="33")]
-  circulation_pump_on: bool,
+  #[packed_field(bits="26..=27", ty="enum")]
+  pump5_status: PumpStatus,
 
-  #[packed_field(bits="34..=35", ty="enum")]
+  #[packed_field(bits="37..=38", ty="enum")]
   blower_status: RelayStatus,
 
-  #[packed_field(bits="40..=41", ty="enum")]
-  light1_status: RelayStatus,
+  #[packed_field(bits="39")]
+  circulation_pump_on: bool,
 
-  #[packed_field(bits="42..=43", ty="enum")]
+  #[packed_field(bits="44..=45", ty="enum")]
   light2_status: RelayStatus,
+
+  #[packed_field(bits="46..=47", ty="enum")]
+  light1_status: RelayStatus,
 }
 
 #[derive(PackedStruct)]
 #[packed_struct(bit_numbering="msb0")]
 pub struct StatusFlags18_19 {
-  #[packed_field(bits="0")]
+  #[packed_field(bits="15")]
   reminder: bool,
 
-  #[packed_field(bits="13")]
+  #[packed_field(bits="2")]
   notification: bool,
 }
 
 #[derive(PackedStruct)]
 #[packed_struct(bit_numbering="msb0")]
 pub struct StatusFlags21 {
-  #[packed_field(bits="1")]
+  #[packed_field(bits="6")]
   sensorAB: bool,
 
-  #[packed_field(bits="2")]
+  #[packed_field(bits="5")]
   timeouts_are_8hr: bool,
 
-  #[packed_field(bits="3")]
+  #[packed_field(bits="4")]
   settings_locked: bool,
 }
 
@@ -937,43 +937,43 @@ pub struct ConfigurationResponseMessage {
 #[packed_struct(bit_numbering="msb0")]
 pub struct ConfigurationResponsePack {
   #[packed_field(bits="0..=1", ty="enum")]
-  pump1: PumpConfig,
-
-  #[packed_field(bits="2..=3", ty="enum")]
-  pump2: PumpConfig,
-
-  #[packed_field(bits="4..=5", ty="enum")]
-  pump3: PumpConfig,
-
-  #[packed_field(bits="6..=7", ty="enum")]
   pump4: PumpConfig,
 
-  #[packed_field(bits="8..=9", ty="enum")]
-  pump5: PumpConfig,
+  #[packed_field(bits="2..=3", ty="enum")]
+  pump3: PumpConfig,
 
-  #[packed_field(bits="10..=11", ty="enum")]
+  #[packed_field(bits="4..=5", ty="enum")]
+  pump2: PumpConfig,
+
+  #[packed_field(bits="6..=7", ty="enum")]
+  pump1: PumpConfig,
+
+  #[packed_field(bits="8..=9", ty="enum")]
   pump6: PumpConfig,
 
-  #[packed_field(bits="16..=17", ty="enum")]
-  light1: RelayConfig,
+  #[packed_field(bits="10..=11", ty="enum")]
+  pump5: PumpConfig,
 
-  #[packed_field(bits="22..=23", ty="enum")]
+  #[packed_field(bits="16..=17", ty="enum")]
   light2: RelayConfig,
 
-  #[packed_field(bits="24..=25", ty="enum")]
-  blower: RelayConfig,
-  
-  #[packed_field(bits="31", ty="enum")]
+  #[packed_field(bits="22..=23", ty="enum")]
+  light1: RelayConfig,
+
+  #[packed_field(bits="24", ty="enum")]
   circulation_pump: RelayConfig,
 
-  #[packed_field(bits="32", ty="enum")]
-  aux1: RelayConfig,
+  #[packed_field(bits="30..=31", ty="enum")]
+  blower: RelayConfig,
 
-  #[packed_field(bits="33", ty="enum")]
+  #[packed_field(bits="34..=35", ty="enum")]
+  mister: RelayConfig,
+
+  #[packed_field(bits="36", ty="enum")]
   aux2: RelayConfig,
 
-  #[packed_field(bits="36..=37", ty="enum")]
-  mister: RelayConfig,
+  #[packed_field(bits="37", ty="enum")]
+  aux1: RelayConfig,
 
   #[packed_field(bits="40..=47")]
   unknown: u8,

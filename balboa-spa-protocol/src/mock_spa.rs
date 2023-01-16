@@ -101,6 +101,15 @@ impl MockSpa {
       CurrentTemperatureState::AtTarget => Some(user_status.set_temperature.clone()),
     };
 
+    let pump_status = hw_status.pumps.into_iter()
+        .map(|p| {
+          match run_status.pumps_forced_low {
+            Some(true) => ParsedEnum::new(PumpStatus::Low),
+            _ => p
+          }
+        })
+        .collect();
+
     let status = StatusUpdateResponseV1 {
       spa_state: ParsedEnum::new(run_status.spa_mode),
       init_mode: ParsedEnum::new(run_status.init_mode),
@@ -117,8 +126,8 @@ impl MockSpa {
       heating_state: ParsedEnum::new(run_status.heating_state),
       mister_on: ParsedEnum::new(Boolean::False),
       set_temperature: user_status.set_temperature,
-      pump_status: hw_status.pumps,
-      circulation_pump_on: ParsedEnum::new(Boolean::False),
+      pump_status,
+      circulation_pump_on: ParsedEnum::new(Boolean::from(run_status.circulation_pump_on)),
       blower_status: hw_status.blower,
       light_status: hw_status.lights,
       reminder_set: ParsedEnum::new(Boolean::False),
@@ -158,6 +167,8 @@ impl MockSpaState {
           heating_mode: HeatingMode::Rest,
           needs_heat: true,
           heating_state: HeatingState::Off,
+          circulation_pump_on: false,
+          pumps_forced_low: Some(false),
         }
       }
       MockSpaState::Heating => {
@@ -168,6 +179,8 @@ impl MockSpaState {
           heating_mode: HeatingMode::Ready,
           needs_heat: true,
           heating_state: HeatingState::Heating,
+          circulation_pump_on: true,
+          pumps_forced_low: Some(true),
         }
       }
       MockSpaState::Hold => {
@@ -178,6 +191,8 @@ impl MockSpaState {
           heating_mode: HeatingMode::ReadyInRest,
           needs_heat: false,
           heating_state: HeatingState::HeatWaiting,
+          circulation_pump_on: false,
+          pumps_forced_low: None,
         }
       }
     }
@@ -193,6 +208,8 @@ pub struct RuntimeStatus {
   heating_mode: HeatingMode,
   needs_heat: bool,
   heating_state: HeatingState,
+  circulation_pump_on: bool,
+  pumps_forced_low: Option<bool>,
 }
 
 #[derive(Debug, Clone)]

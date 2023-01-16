@@ -326,7 +326,7 @@ void decodeState() {
     if (Q_in[25] % 2 == 1) d += 0.5;
   }
 
-  mqtt_publish("Spa/target_temp/state", String(d, 2).c_str());
+  mqtt_publish("Spa/target_temp/state", std::to_string(d).c_str());
 
   // 7:Flag Byte 2 - Actual temperature
   if (Q_in[7] != 0xFF) {
@@ -341,7 +341,7 @@ void decodeState() {
       if ((d > c * 1.2) || (d < c * 0.8)) d = c; //remove spurious readings greater or less than 20% away from previous read
     }
 
-    mqtt_publish("Spa/temperature/state", String(d, 2).c_str());
+    mqtt_publish("Spa/temperature/state", std::to_string(d).c_str());
     c = d;
   } else {
     d = 0;

@@ -10,4 +10,5 @@ exclude = [
   # Build and test that stuff entirely manually and separate, but move
   # all of the interesting logic into the other crates.
   "mock-mainboard-esp",
+  "topside-panel-esp",
 ]

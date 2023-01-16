@@ -271,7 +271,6 @@ void decodeFilterSettings() {
   d += std::to_string(SpaFilterSettings.filt2DurationMinute);
   if ((int)(SpaFilterSettings.filt2Enable) == 1) mqtt_publish("Spa/filter2_enabled/state", STRON); else mqtt_publish("Spa/filter2_enabled/state", STROFF);
 
-
   payld = "{\"start\":\""+s+"\",\"duration\":\""+d+"\"}";
   mqtt_publish("Spa/filter2/state", payld.c_str());
 

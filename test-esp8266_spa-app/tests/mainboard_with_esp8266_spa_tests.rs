@@ -1,16 +1,17 @@
 extern crate core;
 
 use std::{io, thread};
-use std::io::{BufRead};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use log::LevelFilter;
+use log::{debug, LevelFilter};
 use mock_mainboard_lib::main_board::MainBoard;
 use mock_mainboard_lib::transport::StdTransport;
 
 // Note that this test is _really_ about mock_mainboard_lib testing, but we're putting it here
 // because assert_cmd assumes that we're testing a binary from the current crate.
 #[test]
+#[ntest::timeout(10000)]
 fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   let _ = env_logger::builder().filter_level(LevelFilter::Debug).is_test(true).try_init();
 
@@ -25,24 +26,72 @@ fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   let server_in = child.stdout.take().unwrap();
   let client_debug = child.stderr.take().unwrap();
 
-  // TODO: Manually drive init timing for testing purposes
-  let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_init_delay(Duration::from_secs(0));
-  let (shutdown_handle, runner) = main_board.into_runner();
+  let main_board = MainBoard::new(StdTransport::new(server_in, server_out));
+  let (control_handle, runner) = main_board.into_runner();
 
   let run_thread = thread::Builder::new()
       .name("ServerMainThread".into())
       .spawn(move || runner.run_loop())
       .unwrap();
 
-  for line in io::BufReader::new(client_debug).lines() {
-    // TODO: Actually drive some logic here... :)
-    println!("{}", line?);
-  }
+  let mut reader = ReaderHelper::new(client_debug);
+  reader.expect("Spa/node/id:16")?;
+  reader.expect_all(vec![
+    "Spa/config/pumps1:2",
+    "Spa/config/pumps2:0",
+    "Spa/heatingmode/state:OFF",
+  ])?;
 
-  shutdown_handle.request_shutdown();
+  control_handle.complete_init();
+  reader.expect_all(vec![
+    "Spa/heatingmode/state:ON",
+    "Spa/temperature/state:20.000000"
+  ])?;
+
+  control_handle.request_shutdown();
   child.kill()?;
   run_thread.join().unwrap()?;
 
   Ok(())
+}
+
+struct ReaderHelper<R> {
+  reader: BufReader<R>
+}
+
+impl <R: Read> ReaderHelper<R> {
+  pub fn new(reader: R) -> Self {
+    Self { reader: BufReader::new(reader) }
+  }
+
+  pub fn expect(&mut self, line: &str) -> anyhow::Result<()> {
+    self.expect_all(vec![line])
+  }
+
+  pub fn expect_all(&mut self, mut lines: Vec<&str>) -> anyhow::Result<()> {
+    let mut buf = String::new();
+    loop {
+      buf.clear();
+      let _ = self.reader.read_line(&mut buf);
+      if buf.ends_with('\n') {
+        buf.pop();
+        if buf.ends_with('\r') {
+          buf.pop();
+        }
+      }
+      println!("{buf}");
+      lines.retain(|line| {
+        if line == &buf.as_str() {
+          println!("Found: {line}");
+          false
+        } else {
+          true
+        }
+      });
+      if lines.is_empty() {
+        break;
+      }
+    }
+    Ok(())
+  }
 }

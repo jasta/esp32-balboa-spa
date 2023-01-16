@@ -19,7 +19,6 @@ fn mainboard_get_version() -> anyhow::Result<()> {
 
   let ((mut client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
   let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_init_delay(Duration::from_secs(1))
       .set_clear_to_send_window(Duration::MAX);
   let (shutdown_handle, runner) = main_board.into_runner();
 

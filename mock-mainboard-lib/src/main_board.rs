@@ -34,7 +34,7 @@ pub struct MainBoard<R, W> {
   framed_writer: FramedWriter,
   raw_reader: R,
   raw_writer: W,
-  init_delay: Duration,
+  init_delay: Option<Duration>,
   clear_to_send_window: Duration,
 }
 
@@ -52,13 +52,13 @@ where
       framed_writer,
       raw_reader,
       raw_writer,
-      init_delay: DEFAULT_INIT_DELAY,
+      init_delay: None,
       clear_to_send_window: DEFAULT_CLEAR_TO_SEND_WINDOW,
     }
   }
 
   pub fn set_init_delay(mut self, init_delay: Duration) -> Self {
-    self.init_delay = init_delay;
+    self.init_delay = Some(init_delay);
     self
   }
 
@@ -67,7 +67,7 @@ where
     self
   }
 
-  pub fn into_runner(self) -> (ShutdownHandle, Runner<R, W>) {
+  pub fn into_runner(self) -> (ControlHandle, Runner<R, W>) {
     let (tx, rx) = mpsc::sync_channel(32);
     let message_reader = MessageReader {
       message_tx: tx.clone(),
@@ -88,23 +88,27 @@ where
       clear_to_send_window: self.clear_to_send_window,
     };
 
-    let shutdown_handle = ShutdownHandle { tx };
+    let shutdown_handle = ControlHandle { tx };
     let runner = Runner { message_reader, timer_setup, event_handler };
     (shutdown_handle, runner)
   }
 }
 
-pub struct ShutdownHandle {
+pub struct ControlHandle {
   tx: SyncSender<Event>,
 }
 
-impl ShutdownHandle {
+impl ControlHandle {
+  pub fn complete_init(&self) {
+    let _ = self.tx.send(Event::InitFinished);
+  }
+
   pub fn request_shutdown(&self) {
     let _ = self.tx.send(Event::Shutdown);
   }
 }
 
-impl Drop for ShutdownHandle {
+impl Drop for ControlHandle {
   fn drop(&mut self) {
     self.request_shutdown();
   }
@@ -200,7 +204,7 @@ impl<R: Read + Send> MessageReader<R> {
 
 struct TimerSetup {
   timer_tx: SyncSender<Event>,
-  init_delay: Duration,
+  init_delay: Option<Duration>,
   clear_to_send_window: Duration,
 }
 
@@ -215,11 +219,13 @@ impl TimerSetup {
     });
     guards.push(guard);
 
-    let init_tx = self.timer_tx.clone();
-    let guard = timer.schedule_with_delay(chrono::Duration::from_std(self.init_delay)?, move || {
-      let _ = init_tx.send(Event::InitFinished);
-    });
-    guards.push(guard);
+    if let Some(init_delay) = self.init_delay {
+      let init_tx = self.timer_tx.clone();
+      let guard = timer.schedule_with_delay(chrono::Duration::from_std(init_delay)?, move || {
+        let _ = init_tx.send(Event::InitFinished);
+      });
+      guards.push(guard);
+    }
 
     Ok(TimerHold { timer, guards })
   }

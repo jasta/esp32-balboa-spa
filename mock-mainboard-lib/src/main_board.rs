@@ -195,14 +195,16 @@ impl TimerSetup {
     let mut guards = Vec::new();
 
     let main_tick_tx = self.timer_tx.clone();
-    let guard = timer.schedule_repeating(chrono::Duration::from_std(Duration::from_millis(1000 / 32))?, move || {
-      let _ = main_tick_tx.send(Event::TimerTick(TimerId::Update32Hz));
+    let guard = timer.schedule_repeating(
+        chrono::Duration::from_std(Duration::from_millis(1000 / 20))?, move || {
+      let _ = main_tick_tx.send(Event::TimerTick(TimerId::Update20Hz));
     });
     guards.push(guard);
 
     if let Some(init_delay) = self.init_delay {
       let init_tx = self.timer_tx.clone();
-      let guard = timer.schedule_with_delay(chrono::Duration::from_std(init_delay)?, move || {
+      let guard = timer.schedule_with_delay(
+          chrono::Duration::from_std(init_delay)?, move || {
         let _ = init_tx.send(Event::InitFinished);
       });
       guards.push(guard);
@@ -456,59 +458,67 @@ impl<W: Write + Send> EventHandler<W> {
 
   fn handle_timer(&mut self, timer_id: TimerId) -> Result<(), HandlingError> {
     match timer_id {
-      TimerId::Update32Hz => {
-        if self.state.timer_tick >= 33 {
-          self.state.timer_tick = 0;
-        }
-        self.state.timer_tick += 1;
-
-        match &self.state.authorized_sender {
-          Some(authorized) => {
-            if authorized.authorized_at.elapsed() > self.clear_to_send_window {
-              error!(
-                "Authorized sender on channel={:?} timed out, clearing...",
-                authorized.channel);
-              self.state.authorized_sender = None;
-            } else {
-              warn!(
-                "Skipping timer tick={}, active authorized sender on {:?}",
-                self.state.timer_tick, authorized.channel);
-            }
+      TimerId::Update20Hz => {
+        if self.can_send_now() {
+          if self.state.timer_tick >= 21 {
+            self.state.timer_tick = 0;
           }
-          None => {
-            let message = match self.state.timer_tick {
-              1 => {
-                Some(SendMessage::no_reply(
-                    MessageType::NewClientClearToSend()
-                        .to_message(Channel::MulticastChannelAssignment)?))
-              },
-              2 => {
-                Some(SendMessage::no_reply(
-                    MessageType::StatusUpdate(self.state.mock_spa.as_status())
-                        .to_message(Channel::MulticastBroadcast)?))
-              },
-              tick => {
-                if self.state.channels.is_empty() {
-                  None
-                } else {
-                  let adjusted_tick = tick - 2;
-                  let client_index = adjusted_tick % self.state.channels.len();
-                  let target = Channel::new_client_channel(client_index)
-                      .map_err(|_| {
-                        HandlingError::FatalError("Overflowed total channels!".to_owned())
-                      })?;
-                  Some(SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?))
-                }
+          self.state.timer_tick += 1;
+          let message = match self.state.timer_tick {
+            1 => {
+              // Sort of odd to say we expect a reply but for our purposes this just means
+              // that we won't perform any writes until we timeout hearing back from any
+              // new clients.  This is important since if we try to write again right after
+              // sending this we might clobber data and get stuck in a starvation loop.
+              Some(SendMessage::expect_reply(
+                MessageType::NewClientClearToSend()
+                    .to_message(Channel::MulticastChannelAssignment)?))
+            },
+            2 => {
+              Some(SendMessage::no_reply(
+                MessageType::StatusUpdate(self.state.mock_spa.as_status())
+                    .to_message(Channel::MulticastBroadcast)?))
+            },
+            tick => {
+              if self.state.channels.is_empty() {
+                None
+              } else {
+                let adjusted_tick = tick - 2;
+                let client_index = adjusted_tick % self.state.channels.len();
+                let target = Channel::new_client_channel(client_index)
+                    .map_err(|_| {
+                      HandlingError::FatalError("Overflowed total channels!".to_owned())
+                    })?;
+                Some(SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?))
               }
-            };
-            if let Some(message) = message {
-              self.send_message(message)?;
             }
+          };
+          if let Some(message) = message {
+            self.send_message(message)?;
           }
         }
       }
     }
     Ok(())
+  }
+
+  fn can_send_now(&self) -> bool {
+    match &self.state.authorized_sender {
+      Some(authorized) => {
+        if authorized.authorized_at.elapsed() > self.clear_to_send_window {
+          error!(
+                "Authorized sender on channel={:?} timed out, clearing...",
+                authorized.channel);
+          true
+        } else {
+          warn!(
+                "Skipping timer tick={}, active authorized sender on {:?}",
+                self.state.timer_tick, authorized.channel);
+          false
+        }
+      }
+      None => true,
+    }
   }
 
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
@@ -626,5 +636,5 @@ impl SendMessage {
 
 #[derive(Debug)]
 enum TimerId {
-  Update32Hz,
+  Update20Hz,
 }

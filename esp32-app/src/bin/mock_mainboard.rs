@@ -11,10 +11,7 @@ use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
 use log::{info, warn};
 use mock_mainboard_lib::main_board::MainBoard;
-use crate::esp_uart_transport::{EspUartTransport};
-
-mod wifi;
-pub mod esp_uart_transport;
+use esp_app::esp_uart_transport::EspUartTransport;
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();

@@ -1,5 +1,3 @@
-mod esp_uart_transport;
-
 use std::io::BufRead;
 use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
@@ -15,7 +13,7 @@ use esp_idf_hal::uart::UartDriver;
 use esp_idf_hal::units::Hertz;
 use log::{error, info, warn};
 use mock_mainboard_lib::transport::Transport;
-use crate::esp_uart_transport::EspUartTransport;
+use esp_app::esp_uart_transport::EspUartTransport;
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();

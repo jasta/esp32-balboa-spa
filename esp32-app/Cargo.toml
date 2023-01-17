@@ -1,5 +1,5 @@
 [package]
-name = "topside-panel-esp"
+name = "esp-app"
 version = "0.0.0"
 authors = ["jasta <jasta@devtcg.org>"]
 edition = "2021"
@@ -23,7 +23,6 @@ embedded-hal = "0.2.7"
 log = "0.4.17"
 anyhow = "1"
 thiserror = "1.0.38"
-balboa-spa-messages = { path = "../balboa-spa-messages" }
 mock-mainboard-lib = { path = "../mock-mainboard-lib" }
 nb = "1.0.0"
 

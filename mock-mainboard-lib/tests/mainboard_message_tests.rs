@@ -7,7 +7,10 @@ use anyhow::anyhow;
 use log::LevelFilter;
 use pipe::{PipeReader, PipeWriter};
 use balboa_spa_messages::channel::Channel;
-use balboa_spa_messages::framing::{FramedReader, FramedWriter};
+use balboa_spa_messages::frame_decoder::FrameDecoder;
+use balboa_spa_messages::frame_encoder::FrameEncoder;
+use balboa_spa_messages::framed_reader::FramedReader;
+use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, PayloadParseError, SettingsRequestMessage};
 use mock_mainboard_lib::main_board::MainBoard;
@@ -27,8 +30,8 @@ fn mainboard_get_version() -> anyhow::Result<()> {
       .spawn(move || runner.run_loop())
       .unwrap();
 
-  let mut reader_helper = ReaderHelper::new(client_in);
-  let mut writer_helper = WriterHelper::new(client_out);
+  let mut framed_reader = FramedReader::new(client_in);
+  let mut framed_writer = FramedWriter::new(client_out);
 
   let mut state = GetVersionTestState::NeedChannel_WaitingCTS;
   let mut my_channel = None;
@@ -36,12 +39,12 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   // Note that we're using an event loop similar to the non-test implementations because it is more
   // flexible and can detect stateful errors earlier, more clearly, and more consistently.
   let board_model = loop {
-    let message = reader_helper.next_message()?;
+    let message = framed_reader.next_message()?;
     match (message.channel, MessageType::try_from(&message)?) {
       (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
         assert_eq!(state, GetVersionTestState::NeedChannel_WaitingCTS);
-        writer_helper.write(
-          MessageType::ChannelAssignmentRequest {
+        framed_writer.write(
+          &MessageType::ChannelAssignmentRequest {
             device_type: 0x0,
             client_hash: 0xcafe,
           }.to_message(Channel::MulticastChannelAssignment)?)?;
@@ -50,14 +53,14 @@ fn mainboard_get_version() -> anyhow::Result<()> {
       (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
         assert_eq!(state, GetVersionTestState::NeedChannel_WaitingAssignment);
         my_channel = Some(channel);
-        writer_helper.write(MessageType::ChannelAssignmentAck().to_message(channel)?)?;
+        framed_writer.write(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
         state = GetVersionTestState::NeedInfo_WaitingCTS;
       }
       (channel, MessageType::ClearToSend()) => {
         assert_eq!(state, GetVersionTestState::NeedInfo_WaitingCTS);
         assert_eq!(Some(channel), my_channel);
-        writer_helper.write(
-          MessageType::SettingsRequest(SettingsRequestMessage::Information)
+        framed_writer.write(
+          &MessageType::SettingsRequest(SettingsRequestMessage::Information)
               .to_message(channel)?)?;
         state = GetVersionTestState::NeedInfo_WaitingInfo;
       }
@@ -76,8 +79,8 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   assert_eq!(board_model, "Mock Spa");
 
   shutdown_handle.request_shutdown();
-  drop(reader_helper);
-  drop(writer_helper);
+  drop(framed_reader);
+  drop(framed_writer);
   run_thread.join().unwrap()?;
 
   Ok(())
@@ -89,73 +92,4 @@ enum GetVersionTestState {
   NeedChannel_WaitingAssignment,
   NeedInfo_WaitingCTS,
   NeedInfo_WaitingInfo,
-}
-
-#[derive(Debug)]
-struct ReaderHelper<R> {
-  raw_reader: R,
-  framed_reader: FramedReader,
-  buf: [u8; 32],
-}
-
-impl<R: Read> ReaderHelper<R> {
-  pub fn new(raw_reader: R) -> Self {
-    Self {
-      raw_reader,
-      framed_reader: FramedReader::new(),
-      buf: [0u8; 32],
-    }
-  }
-
-  pub fn expect(&mut self, channel: Channel, kind: MessageTypeKind) -> anyhow::Result<MessageType> {
-    loop {
-      let message = self.next_message()?;
-      if message.channel != channel {
-        continue;
-      }
-      let parsed = MessageType::try_from(&message)?;
-      if MessageTypeKind::from(&parsed) != kind {
-        continue;
-      }
-
-      return Ok(parsed);
-    }
-  }
-
-  pub fn next_message(&mut self) -> anyhow::Result<Message> {
-    loop {
-      match self.raw_reader.read(self.buf.as_mut_slice())? {
-        n if n == 0 => return Err(anyhow!("Unexpected EOF")),
-        n => {
-          for b in &self.buf[0..n] {
-            if let Some(message) = self.framed_reader.accept(*b) {
-              return Ok(message);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-#[derive(Debug)]
-struct WriterHelper<W> {
-  raw_writer: W,
-  framed_writer: FramedWriter,
-}
-
-impl<W: Write> WriterHelper<W> {
-  pub fn new(raw_writer: W) -> Self {
-    Self {
-      raw_writer,
-      framed_writer: FramedWriter::new(),
-    }
-  }
-
-  pub fn write(&mut self, message: Message) -> anyhow::Result<()> {
-    let encoded = self.framed_writer.encode(&message)?;
-    self.raw_writer.write_all(&encoded)?;
-    self.raw_writer.flush()?;
-    Ok(())
-  }
 }

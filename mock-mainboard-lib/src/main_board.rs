@@ -15,7 +15,10 @@ use log::{debug, error, info, Level, log, trace, warn};
 use num_traits::FromPrimitive;
 use timer::{Guard, Timer};
 use balboa_spa_messages::channel::Channel;
-use balboa_spa_messages::framing::{FramedReader, FramedWriter};
+use balboa_spa_messages::frame_decoder::FrameDecoder;
+use balboa_spa_messages::frame_encoder::FrameEncoder;
+use balboa_spa_messages::framed_reader::FramedReader;
+use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::{EncodeError, Message};
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, FaultResponseMessage, HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, MessageTypeKind, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
 use balboa_spa_messages::message_types::SpaState::Running;
@@ -30,10 +33,8 @@ const DEFAULT_INIT_DELAY: Duration = Duration::from_millis(5000);
 const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
 
 pub struct MainBoard<R, W> {
-  framed_reader: FramedReader,
-  framed_writer: FramedWriter,
-  raw_reader: R,
-  raw_writer: W,
+  framed_reader: FramedReader<R>,
+  framed_writer: FramedWriter<W>,
   init_delay: Option<Duration>,
   clear_to_send_window: Duration,
 }
@@ -44,14 +45,12 @@ where
     W: Write + Send,
 {
   pub fn new(transport: impl Transport<R, W>) -> Self {
-    let framed_reader = FramedReader::new();
-    let framed_writer = FramedWriter::new();
     let (raw_reader, raw_writer) = transport.split();
+    let framed_reader = FramedReader::new(raw_reader);
+    let framed_writer = FramedWriter::new(raw_writer);
     Self {
       framed_reader,
       framed_writer,
-      raw_reader,
-      raw_writer,
       init_delay: None,
       clear_to_send_window: DEFAULT_CLEAR_TO_SEND_WINDOW,
     }
@@ -72,7 +71,6 @@ where
     let message_reader = MessageReader {
       message_tx: tx.clone(),
       framed_reader: self.framed_reader,
-      raw_reader: self.raw_reader,
     };
     let timer_setup = TimerSetup {
       timer_tx: tx.clone(),
@@ -82,7 +80,6 @@ where
     let event_handler = EventHandler {
       event_rx: rx,
       framed_writer: self.framed_writer,
-      raw_writer: self.raw_writer,
       message_logger: MessageLogger::default(),
       state: MainBoardState::default(),
       clear_to_send_window: self.clear_to_send_window,
@@ -165,37 +162,21 @@ impl<R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
 }
 
 struct MessageReader<R> {
-  framed_reader: FramedReader,
-  raw_reader: R,
+  framed_reader: FramedReader<R>,
   message_tx: SyncSender<Event>,
 }
 
 impl<R: Read + Send> MessageReader<R> {
   pub fn run_loop(mut self) -> Result<(), SendError<Event>> {
-    let mut buf = [0u8; 256];
     loop {
-      match self.raw_reader.read(buf.as_mut_slice()) {
-        Ok(n) if n == 0 => {
-          self.message_tx.send(Event::ReadError(anyhow!("Unexpected EOF")))?;
-          break
+      match self.framed_reader.next_message() {
+        Ok(message) => {
+          self.message_tx.send(Event::ReceivedMessage(TimeSensitiveMessage::from_now(message)))?;
         }
-        Ok(n) => self.handle_data(&buf[0..n])?,
         Err(e) => {
           self.message_tx.send(Event::ReadError(anyhow!("{:?}", e)))?;
-          break
+          break;
         }
-      }
-    }
-    Ok(())
-  }
-
-  fn handle_data(&mut self, data: &[u8]) -> Result<(), SendError<Event>> {
-    for b in data {
-      match self.framed_reader.accept(*b) {
-        None => {}
-        Some(message) => {
-          self.message_tx.send(Event::ReceivedMessage(TimeSensitiveMessage::from_now(message)))?
-        },
       }
     }
     Ok(())
@@ -237,8 +218,7 @@ struct TimerHold {
 }
 
 struct EventHandler<W> {
-  framed_writer: FramedWriter,
-  raw_writer: W,
+  framed_writer: FramedWriter<W>,
   event_rx: Receiver<Event>,
   message_logger: MessageLogger,
   state: MainBoardState,
@@ -552,8 +532,9 @@ impl<W: Write + Send> EventHandler<W> {
     let err_mapper = |e| {
       HandlingError::FatalError(format!("Line write failure: {e:?}"))
     };
-    self.raw_writer.write_all(&encoded_reply).map_err(err_mapper)?;
-    self.raw_writer.flush().map_err(err_mapper)?;
+
+    self.framed_writer.write(&encoded_reply)
+        .map_err(err_mapper)?;
 
     Ok(())
   }

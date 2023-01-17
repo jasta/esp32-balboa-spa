@@ -39,14 +39,20 @@ const CRC_ALGORITHM: Algorithm<u8> = Algorithm {
 };
 const CRC_ENGINE: Crc<u8> = Crc::<u8>::new(&CRC_ALGORITHM);
 
-impl FramedReader {
-  pub fn new() -> Self {
+impl Default for FramedReader {
+  fn default() -> Self {
     Self {
       state: ReaderState::Ready,
       num_bytes_expected: None,
       current_message: vec![],
       frames_with_errors: 0,
     }
+  }
+}
+
+impl FramedReader {
+  pub fn new() -> Self {
+    Default::default()
   }
 
   pub fn accept(&mut self, byte: u8) -> Option<Message> {

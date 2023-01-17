@@ -90,6 +90,10 @@ impl FramedReader {
       }
       ReaderState::GotStart => {
         match byte {
+          START_OF_MESSAGE => {
+            // Probably still regaining from a messed up stream, let's just try again...
+            true
+          }
           1..=250 => {
             self.num_bytes_expected = Some(usize::from(byte) - 2);
             self.current_message.push(byte);
@@ -235,17 +239,39 @@ mod tests {
   }
 
   #[test]
+  fn test_regained_stream() {
+    let encoded_bad = b"\x4f\x00\xdb\x7e";
+    let writer = FramedWriter::new();
+    let message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0x03, 0x04]);
+    let encoded_correct = writer.encode(&message).unwrap();
+
+    let mut reader = FramedReader::new();
+    let first = decode_one(&mut reader, &encoded_correct);
+    assert_eq!(first, Some(message.clone()));
+    let second = decode_one(&mut reader, encoded_bad);
+    assert_eq!(reader.state, ReaderState::GotStart);
+    assert_eq!(second, None);
+    let third = decode_one(&mut reader, &encoded_correct);
+    assert_eq!(third, Some(message));
+  }
+
+  #[test]
   fn test_reflexive_simple() {
     let mut reader = FramedReader::new();
     let writer = FramedWriter::new();
 
     let message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0x03, 0x04]);
     let encoded = writer.encode(&message).unwrap();
-    let mut last_ret = None;
-    for byte in encoded {
-      last_ret = reader.accept(byte);
-    }
+    let decoded = decode_one(&mut reader, &encoded);
 
-    assert_eq!(last_ret, Some(message));
+    assert_eq!(decoded, Some(message));
   }
+}
+
+fn decode_one(reader: &mut FramedReader, bytes: &[u8]) -> Option<Message> {
+  let mut last_ret = None;
+  for byte in bytes {
+    last_ret = reader.accept(*byte);
+  }
+  last_ret
 }

@@ -1,33 +1,28 @@
 //! Mock main board handler used to integration test top panel / Wi-Fi module production code
 //! and validate the overall correctness of implementations.
 
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
-use std::error::Error;
 use std::io::{Read, Write};
-use std::sync::{Arc, mpsc, Mutex};
-use std::sync::mpsc::{channel, Receiver, Sender, SendError, SyncSender};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, SendError, SyncSender};
 use std::{mem, thread};
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use bimap::BiMap;
-use log::{debug, error, info, Level, log, trace, warn};
-use num_traits::FromPrimitive;
+use log::{debug, error, info, trace, warn};
+
 use timer::{Guard, Timer};
 use balboa_spa_messages::channel::Channel;
-use balboa_spa_messages::frame_decoder::FrameDecoder;
-use balboa_spa_messages::frame_encoder::FrameEncoder;
+
+
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::{EncodeError, Message};
-use balboa_spa_messages::message_types::{ConfigurationResponseMessage, FaultResponseMessage, HeaterType, HeaterVoltage, InformationResponseMessage, ItemCode, MessageType, MessageTypeKind, PayloadEncodeError, PayloadParseError, SettingsRequestMessage, SoftwareVersion, SpaState, StatusUpdateResponseV1};
-use balboa_spa_messages::message_types::SpaState::Running;
+use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, MessageType, PayloadEncodeError, SettingsRequestMessage, SoftwareVersion};
+
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::transport::Transport;
-
-const DEFAULT_INIT_DELAY: Duration = Duration::from_millis(5000);
 
 /// Amount of time before removing a client that refuses to acknowledge ClearToSend messages.
 const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
@@ -75,7 +70,6 @@ where
     let timer_setup = TimerSetup {
       timer_tx: tx.clone(),
       init_delay: self.init_delay,
-      clear_to_send_window: self.clear_to_send_window,
     };
     let event_handler = EventHandler {
       event_rx: rx,
@@ -186,7 +180,6 @@ impl<R: Read + Send> MessageReader<R> {
 struct TimerSetup {
   timer_tx: SyncSender<Event>,
   init_delay: Option<Duration>,
-  clear_to_send_window: Duration,
 }
 
 impl TimerSetup {
@@ -210,13 +203,13 @@ impl TimerSetup {
       guards.push(guard);
     }
 
-    Ok(TimerHold { timer, guards })
+    Ok(TimerHold { _timer: timer, _guards: guards })
   }
 }
 
 struct TimerHold {
-  guards: Vec<Guard>,
-  timer: Timer,
+  _guards: Vec<Guard>,
+  _timer: Timer,
 }
 
 struct EventHandler<W> {
@@ -378,7 +371,7 @@ impl<W: Write + Send> EventHandler<W> {
           }
           SettingsRequestMessage::FaultLog { entry_num } => {
             Some(SendMessage::no_reply(MessageType::FaultLogResponse(
-              self.state.mock_spa.as_fault_log()
+              self.state.mock_spa.as_fault_log(entry_num)
             ).to_message(src_channel)?))
           }
           n => {

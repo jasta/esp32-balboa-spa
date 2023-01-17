@@ -1,9 +1,5 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
-use balboa_spa_messages::measurements;
-use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultCode, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, ItemCode, MessageType, PumpConfig, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
-use balboa_spa_messages::message_types::InitializationMode::Reminder;
+use chrono::{Timelike, Utc};
+use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, PumpConfig, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use balboa_spa_messages::temperature::{ProtocolTemperature, Temperature, TemperatureScale};
 use balboa_spa_messages::time::ProtocolTime;
@@ -144,7 +140,7 @@ impl MockSpa {
     self.hardware.as_configuration()
   }
 
-  pub fn as_fault_log(&self) -> FaultResponseMessage {
+  pub fn as_fault_log(&self, _entry_num: u8) -> FaultResponseMessage {
     FaultResponseMessage {
       total_entries: 0,
       entry_number: 0,
@@ -266,7 +262,7 @@ impl MockHardware {
         .map(|p| ParsedEnum::new(p.capability))
         .collect();
     let has_lights = self.lights.iter()
-        .map(|l| ParsedEnum::new(Boolean::True))
+        .map(|_| ParsedEnum::new(Boolean::True))
         .collect();
     ConfigurationResponseMessage {
       pumps,

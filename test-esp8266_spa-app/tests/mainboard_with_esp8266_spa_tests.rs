@@ -1,10 +1,9 @@
 extern crate core;
 
-use std::{io, thread};
+use std::thread;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
-use std::time::Duration;
-use log::{debug, LevelFilter};
+use log::LevelFilter;
 use mock_mainboard_lib::main_board::MainBoard;
 use mock_mainboard_lib::transport::StdTransport;
 

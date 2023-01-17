@@ -1,14 +1,17 @@
+use std::io::Write;
 use std::ops::Deref;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use esp_idf_hal::gpio::{Output, OutputPin, Pin, PinDriver, RTCPin};
+use embedded_hal::digital::v2::{OutputPin, PinState};
+use esp_idf_hal::gpio::{Pin, PinDriver, RTCPin};
 use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
 use log::{info, warn};
 use mock_mainboard_lib::main_board::MainBoard;
+use mock_mainboard_lib::transport::Transport;
 use crate::esp_uart_transport::{EspUartTransport};
 
 mod wifi;

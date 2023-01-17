@@ -1,6 +1,5 @@
-use std::io::{Cursor, Read};
 use anyhow::anyhow;
-use crate::message_types::{PayloadEncodeError, PayloadParseError};
+use crate::message_types::{PayloadEncodeError};
 
 pub fn encode_array<const N: usize>(field_name: &str, src: &[u8]) -> Result<[u8; N], PayloadEncodeError> {
   let mut arr = [0u8; N];

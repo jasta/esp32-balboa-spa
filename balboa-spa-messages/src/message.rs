@@ -53,7 +53,7 @@ impl TryFrom<&[u8]> for Message {
       return Err(ParseError::InvalidPayloadLength(length));
     }
     let channel = Channel::from(cursor.read_u8()?);
-    let magic_byte = cursor.read_u8()?;
+    let _magic_byte = cursor.read_u8()?;
     let message_type = cursor.read_u8()?;
     let mut payload: Vec<u8> = vec![0; usize::from(length) - 5];
     cursor.read_exact(payload.as_mut_slice())?;

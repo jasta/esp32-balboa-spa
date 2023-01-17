@@ -1,6 +1,6 @@
 use crc::{Algorithm, Crc};
 use log::{error, info, trace, warn};
-use crate::message::{EncodeError, Message};
+use crate::message::Message;
 
 #[derive(Debug)]
 pub struct FrameDecoder {
@@ -180,7 +180,6 @@ impl FrameDecoder {
 
 #[cfg(test)]
 mod tests {
-  use log::LevelFilter;
   use crate::channel::Channel;
   use crate::frame_encoder::FrameEncoder;
   use super::*;
@@ -259,12 +258,12 @@ mod tests {
 
     assert_eq!(decoded, Some(message));
   }
-}
 
-fn decode_one(reader: &mut FrameDecoder, bytes: &[u8]) -> Option<Message> {
-  let mut last_ret = None;
-  for byte in bytes {
-    last_ret = reader.accept(*byte);
+  fn decode_one(reader: &mut FrameDecoder, bytes: &[u8]) -> Option<Message> {
+    let mut last_ret = None;
+    for byte in bytes {
+      last_ret = reader.accept(*byte);
+    }
+    last_ret
   }
-  last_ret
 }

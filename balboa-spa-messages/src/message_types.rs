@@ -295,7 +295,7 @@ pub struct StatusFlags18_19 {
 #[packed_struct(bit_numbering="msb0")]
 pub struct StatusFlags21 {
   #[packed_field(bits="6")]
-  sensorAB: bool,
+  sensor_ab: bool,
 
   #[packed_field(bits="5")]
   timeouts_are_8hr: bool,
@@ -386,11 +386,11 @@ impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
     cursor.write_u16::<BigEndian>(value.time.as_raw())?;
     cursor.write_u8(value.heating_mode.as_raw())?;
     cursor.write_u8(value.reminder_type.as_raw())?;
-    let isAbTempsOn = value.spa_state.as_ref()
+    let is_ab_temps_on = value.spa_state.as_ref()
         .map(|s| s == &SpaState::AbTempsOn)
         .unwrap_or(false);
 
-    let (sensorA, sensorB) = match isAbTempsOn {
+    let (sensor_a, sensor_b) = match is_ab_temps_on {
       true => {
         (
           value.hold_timer.unwrap().to_minutes(),
@@ -399,8 +399,8 @@ impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
       }
       false => (0x0, 0x0)
     };
-    cursor.write_u8(sensorA)?;
-    cursor.write_u8(sensorB)?;
+    cursor.write_u8(sensor_a)?;
+    cursor.write_u8(sensor_b)?;
 
     let mut pump_status = [PumpStatus::Off; 6];
     for (i, val) in pump_status.iter_mut().enumerate() {
@@ -452,7 +452,7 @@ impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
     cursor.write_u8(value.set_temperature.raw_value)?;
 
     let flags21 = StatusFlags21 {
-      sensorAB: isAbTempsOn,
+      sensor_ab: is_ab_temps_on,
       timeouts_are_8hr: false,
       settings_locked: false,
     };
@@ -476,8 +476,8 @@ impl TryFrom<&[u8]> for StatusUpdateResponseV1 {
     let time = ProtocolTime::from_hm(time_hour, time_minute);
     let heating_mode = ParsedEnum::from_raw(cursor.read_u8()?);
     let reminder_type = ParsedEnum::from_raw(cursor.read_u8()?);
-    let sensorATemp = cursor.read_u8()?;
-    let seonsrBTemp = cursor.read_u8()?;
+    let _sensor_a_temp = cursor.read_u8()?;
+    let _sensor_b_temp = cursor.read_u8()?;
     let mut flags9_14 = [0u8; 6];
     cursor.read_exact(&mut flags9_14)?;
     let unpacked9_14 = StatusFlags9_14::unpack(&flags9_14)?;
@@ -490,7 +490,7 @@ impl TryFrom<&[u8]> for StatusUpdateResponseV1 {
     let raw_set_temperature = cursor.read_u8()?;
     let mut flags21 = [0u8; 1];
     cursor.read_exact(&mut flags21)?;
-    let unpacked21 = StatusFlags21::unpack(&flags21)?;
+    let _unpacked21 = StatusFlags21::unpack(&flags21)?;
 
     let current_temperature = match raw_current_temperature {
       0xff => None,
@@ -1294,7 +1294,7 @@ impl TryFrom<MessageType> for Vec<u8> {
       }
       MessageType::SettingsRequest(message) =>
         Vec::<u8>::from(&message),
-      MessageType::FilterCycles { cycles } => {
+      MessageType::FilterCycles { .. } => {
         return Err(PayloadEncodeError::NotSupported)
       }
       MessageType::InformationResponse(message) =>

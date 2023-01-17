@@ -22,6 +22,7 @@ pub enum ReaderState {
   GotMessage,
   GotCrc,
   LostPlace,
+  LostPlaceGotEnd,
 }
 
 const START_OF_MESSAGE: u8 = 0x7e;
@@ -90,11 +91,10 @@ impl FramedReader {
       }
       ReaderState::GotStart => {
         match byte {
-          START_OF_MESSAGE => {
-            // Probably still regaining from a messed up stream, let's just try again...
-            true
-          }
-          1..=250 => {
+          // Maximum length set at START_OF_MESSAGE-1 so that we can better catch a
+          // misaligned sequence of bytes that would cause us to get "stuck" reading for quite
+          // some time.
+          c @ 5..=START_OF_MESSAGE if c != START_OF_MESSAGE => {
             self.num_bytes_expected = Some(usize::from(byte) - 2);
             self.current_message.push(byte);
             self.move_to_state(ReaderState::GotLength);
@@ -137,6 +137,15 @@ impl FramedReader {
       }
       ReaderState::LostPlace => {
         match byte {
+          END_OF_MESSAGE => {
+            self.move_to_state(ReaderState::LostPlaceGotEnd);
+            true
+          }
+          _ => false,
+        }
+      }
+      ReaderState::LostPlaceGotEnd => {
+        match byte {
           START_OF_MESSAGE => {
             self.move_to_state(ReaderState::GotStart);
             true
@@ -157,7 +166,7 @@ impl FramedReader {
         warn!("Communication error ({errors} total so far!) in state={old_state:?}, trying to regain stream...");
         self.num_bytes_expected = None;
         self.current_message.clear();
-      } else if old_state == &ReaderState::LostPlace {
+      } else if old_state == &ReaderState::LostPlaceGotEnd {
         info!("Regained stream successfully!");
       }
       self.state = new_state
@@ -249,8 +258,11 @@ mod tests {
     let first = decode_one(&mut reader, &encoded_correct);
     assert_eq!(first, Some(message.clone()));
     let second = decode_one(&mut reader, encoded_bad);
-    assert_eq!(reader.state, ReaderState::GotStart);
+    assert_eq!(reader.state, ReaderState::LostPlaceGotEnd);
     assert_eq!(second, None);
+    let third = decode_one(&mut reader, encoded_bad);
+    assert_eq!(reader.state, ReaderState::LostPlaceGotEnd);
+    assert_eq!(third, None);
     let third = decode_one(&mut reader, &encoded_correct);
     assert_eq!(third, Some(message));
   }

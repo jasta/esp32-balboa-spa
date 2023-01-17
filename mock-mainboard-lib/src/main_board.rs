@@ -514,8 +514,6 @@ impl<W: Write + Send> EventHandler<W> {
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
     self.message_logger.log(MessageDirection::Outbound, &send.message);
 
-    let encoded_reply = self.framed_writer.encode(&send.message)?;
-
     if let Some(authorized) = &self.state.authorized_sender {
       warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
     }
@@ -533,7 +531,7 @@ impl<W: Write + Send> EventHandler<W> {
       HandlingError::FatalError(format!("Line write failure: {e:?}"))
     };
 
-    self.framed_writer.write(&encoded_reply)
+    self.framed_writer.write(&send.message)
         .map_err(err_mapper)?;
 
     Ok(())

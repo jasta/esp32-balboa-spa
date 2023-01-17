@@ -1,16 +1,9 @@
-use std::io::BufRead;
 use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
-use balboa_spa_messages::message_types::{MessageType, PayloadParseError, SettingsRequestMessage};
+use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
 use esp_idf_hal::peripherals::Peripherals;
-use esp_idf_hal::{gpio, uart};
-use esp_idf_hal::delay::BLOCK;
-use esp_idf_hal::gpio::PinDriver;
-use esp_idf_hal::uart::config::{DataBits, StopBits};
-use esp_idf_hal::uart::UartDriver;
-use esp_idf_hal::units::Hertz;
 use log::{error, info, warn};
 use mock_mainboard_lib::transport::Transport;
 use esp_app::esp_uart_transport::EspUartTransport;
@@ -51,22 +44,22 @@ fn main() -> anyhow::Result<()> {
                 device_type: 0x0,
                 client_hash: 0xcafe,
               }.to_message(Channel::MulticastChannelAssignment)?)?;
-            state = GetVersionTestState::NeedChannel_WaitingAssignment;
+            state = GetVersionTestState::NeedChannelWaitingAssignment;
           }
           (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
-            assert_eq!(state, GetVersionTestState::NeedChannel_WaitingAssignment);
+            assert_eq!(state, GetVersionTestState::NeedChannelWaitingAssignment);
             my_channel = Some(channel);
             writer.write(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
-            state = GetVersionTestState::NeedInfo_WaitingCTS;
+            state = GetVersionTestState::NeedInfoWaitingCTS;
           }
           (channel, MessageType::ClearToSend()) => {
             if my_channel == Some(channel) {
               match state {
-                GetVersionTestState::NeedInfo_WaitingCTS => {
+                GetVersionTestState::NeedInfoWaitingCTS => {
                   writer.write(
                     &MessageType::SettingsRequest(SettingsRequestMessage::Information)
                         .to_message(channel)?)?;
-                  state = GetVersionTestState::NeedInfo_WaitingInfo;
+                  state = GetVersionTestState::NeedInfoWaitingInfo;
                 }
                 _ => {
                   writer.write(&MessageType::NothingToSend().to_message(channel)?)?;
@@ -75,7 +68,7 @@ fn main() -> anyhow::Result<()> {
             }
           }
           (channel, MessageType::InformationResponse(info)) => {
-            assert_eq!(state, GetVersionTestState::NeedInfo_WaitingInfo);
+            assert_eq!(state, GetVersionTestState::NeedInfoWaitingInfo);
             assert_eq!(Some(channel), my_channel);
             info!("Got system model number: {}", info.system_model_number);
           }
@@ -93,8 +86,8 @@ fn main() -> anyhow::Result<()> {
 #[derive(Debug, PartialEq, Clone)]
 enum GetVersionTestState {
   NeedChannelWaitingCTS,
-  NeedChannel_WaitingAssignment,
-  NeedInfo_WaitingCTS,
-  NeedInfo_WaitingInfo,
+  NeedChannelWaitingAssignment,
+  NeedInfoWaitingCTS,
+  NeedInfoWaitingInfo,
 }
 

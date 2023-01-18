@@ -30,7 +30,8 @@ fn main() -> anyhow::Result<()> {
 
   info!("UART transport initialized");
 
-  let logic = MainBoard::new(transport);
+  let logic = MainBoard::new(transport)
+      .set_init_delay(Duration::from_secs(10));
   let (shutdown_handle, runner) = logic.into_runner();
 
   info!("Main board setup complete, starting...");

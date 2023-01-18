@@ -1,30 +1,30 @@
 //! Mock main board handler used to integration test top panel / Wi-Fi module production code
 //! and validate the overall correctness of implementations.
 
+use std::{mem, thread};
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, SyncSender};
-use std::{mem, thread};
 use std::time::{Duration, Instant};
+
 use anyhow::anyhow;
-use bimap::BiMap;
 use log::{debug, error, info, trace, warn};
-
 use timer::{Guard, Timer};
+
 use balboa_spa_messages::channel::Channel;
-
-
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::{EncodeError, Message};
 use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, MessageType, PayloadEncodeError, SettingsRequestMessage, SoftwareVersion};
-
 use balboa_spa_messages::parsed_enum::ParsedEnum;
+
+use crate::channel_tracker::{ChannelTracker, DeviceKey};
 use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::transport::Transport;
 
-/// Amount of time before removing a client that refuses to acknowledge ClearToSend messages.
+/// Amount of time to wait when we issue NewClientClearToSend or ClearToSend for a reply
+/// before we can resume sending messages.
 const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
 
 pub struct MainBoard<R, W> {
@@ -223,15 +223,9 @@ struct EventHandler<W> {
 #[derive(Default)]
 struct MainBoardState {
   mock_spa: MockSpa,
-  channels: BiMap<DeviceRecord, Channel>,
+  channel_tracker: ChannelTracker,
   authorized_sender: Option<AuthorizedSender>,
   timer_tick: usize,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
-struct DeviceRecord {
-  device_type: u8,
-  client_hash: u16,
 }
 
 #[derive(Debug)]
@@ -311,18 +305,9 @@ impl<W: Write + Send> EventHandler<W> {
   fn handle_and_generate_response(&mut self, src_channel: Channel, parsed: MessageType) -> Result<Option<SendMessage>, HandlingError> {
     let reply = match parsed {
       MessageType::ChannelAssignmentRequest { device_type, client_hash } => {
-        let record = DeviceRecord { device_type, client_hash };
-        let channels = &mut self.state.channels;
-        let selected_channel = match channels.get_by_left(&record) {
-          Some(entry) => entry.clone(),
-          None => {
-            let channel = Channel::new_client_channel(channels.len())
-                .map_err(|_| HandlingError::ClientNeedsReconnect("channel overflow".to_owned()))?;
-            info!("Allocated new channel={channel:?}");
-            channels.insert(record, channel.clone());
-            channel
-          }
-        };
+        let key = DeviceKey { device_type, client_hash };
+        let selected_channel = self.state.channel_tracker.select_channel(key.clone())?;
+        info!("Assigned {key:?} to {selected_channel:?}");
         Some(SendMessage::expect_reply_on_channel(MessageType::ChannelAssignmentResponse {
           channel: selected_channel,
           client_hash,
@@ -414,38 +399,44 @@ impl<W: Write + Send> EventHandler<W> {
     // so nothing we can do about it.
     let authorized_sender = mem::take(&mut self.state.authorized_sender);
 
-    match bundle.message.channel {
+    let channel = &bundle.message.channel;
+    match channel {
       channel @ Channel::Client(_) => {
-        if self.state.channels.get_by_right(&channel).is_none() {
+        if !self.state.channel_tracker.is_allocated(channel) {
           return Err(HandlingError::ClientNeedsReconnect(
             format!("Received message on unassigned channel={channel:?}, ignoring...")));
         }
-        match authorized_sender {
-          Some(authorized_sender) => {
-            if authorized_sender.channel != channel {
-              return Err(HandlingError::ClientNeedsReconnect(
-                format!("Received message on non-CTS channel={channel:?}, ignoring...")));
-            }
-            let elapsed = authorized_sender.authorized_at.elapsed();
-            if elapsed > self.clear_to_send_window {
-              return Err(HandlingError::ClientNeedsReconnect(
-                format!("Received message on channel={channel:?} after {}s, maximum allowed is {}s, dropping client...",
-                    elapsed.as_secs(), self.clear_to_send_window.as_secs())));
-            }
-          }
-          None => {
-            return Err(HandlingError::ClientNeedsReconnect(
-              format!("Received message on channel={channel:?} without active authorized sender, ignoring...")
-            ));
-          }
-        }
       }
       Channel::MulticastChannelAssignment => {}
-      channel => {
+      _ => {
         return Err(HandlingError::ClientUnsupported(
           format!("Received message on unexpected channel={channel:?}, ignoring...")));
       }
     }
+
+    match authorized_sender {
+      Some(authorized_sender) => {
+        if &authorized_sender.channel != channel {
+          return Err(HandlingError::ClientNeedsReconnect(
+            format!("Received message on non-CTS channel={channel:?}, ignoring...")));
+        }
+        let elapsed = authorized_sender.authorized_at.elapsed();
+        if elapsed > self.clear_to_send_window {
+          let action = self.state.channel_tracker.record_cts_failure(channel.to_owned());
+          return Err(HandlingError::ClientNeedsReconnect(
+            format!("Received message on channel={channel:?} after {}s, maximum allowed is {}s, {action:?}...",
+              elapsed.as_secs(), self.clear_to_send_window.as_secs())));
+        } else {
+          self.state.channel_tracker.record_cts_success(channel.to_owned());
+        }
+      }
+      None => {
+        return Err(HandlingError::ClientNeedsReconnect(
+          format!("Received message on channel={channel:?} without active authorized sender, ignoring...")
+        ));
+      }
+    }
+
     Ok(())
   }
 
@@ -473,14 +464,15 @@ impl<W: Write + Send> EventHandler<W> {
                     .to_message(Channel::MulticastBroadcast)?))
             },
             tick => {
-              if self.state.channels.is_empty() {
+              let num_channels = self.state.channel_tracker.len();
+              if num_channels == 0 {
                 None
               } else {
                 let adjusted_tick = tick - 2;
-                let client_index = adjusted_tick % self.state.channels.len();
+                let client_index = adjusted_tick % num_channels;
                 let target = Channel::new_client_channel(client_index)
                     .map_err(|_| {
-                      HandlingError::FatalError("Overflowed total channels!".to_owned())
+                      HandlingError::FatalError("Inconsistent channel overflow behaviour!".to_owned())
                     })?;
                 Some(SendMessage::expect_reply(MessageType::ClearToSend().to_message(target)?))
               }
@@ -495,13 +487,17 @@ impl<W: Write + Send> EventHandler<W> {
     Ok(())
   }
 
-  fn can_send_now(&self) -> bool {
+  fn can_send_now(&mut self) -> bool {
     match &self.state.authorized_sender {
       Some(authorized) => {
         if authorized.authorized_at.elapsed() > self.clear_to_send_window {
-          error!(
+          // Only log if we genuinely expected a reply...
+          if authorized.channel != Channel::MulticastChannelAssignment {
+            error!(
                 "Authorized sender on channel={:?} timed out, clearing...",
                 authorized.channel);
+            self.state.channel_tracker.record_cts_failure(authorized.channel);
+          }
           true
         } else {
           warn!(
@@ -518,7 +514,9 @@ impl<W: Write + Send> EventHandler<W> {
     self.message_logger.log(MessageDirection::Outbound, &send.message);
 
     if let Some(authorized) = &self.state.authorized_sender {
-      warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
+      if authorized.channel != Channel::MulticastChannelAssignment {
+        warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
+      }
     }
 
     let authorized_sender = send.expect_reply_on.map(|channel| AuthorizedSender {
@@ -542,7 +540,7 @@ impl<W: Write + Send> EventHandler<W> {
 }
 
 #[derive(thiserror::Error, Debug)]
-enum HandlingError {
+pub(crate) enum HandlingError {
   #[error("Main board fatal error, must halt: {0}")]
   FatalError(String),
 

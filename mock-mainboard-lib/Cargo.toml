@@ -9,7 +9,6 @@ anyhow = "1"
 thiserror = "1"
 timer = { git = "https://github.com/Yoric/timer.rs" }
 chrono = { version = "0.4.23", default-features = false, features = ["std"] }
-bimap = "0.6.2"
 num-traits = "0.2.15"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 

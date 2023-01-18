@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use core::ops::RangeInclusive;
 
-const CLIENT_CTS_RANGE: RangeInclusive<u8> = 0x10 ..= 0x2f;
+pub const CLIENT_CTS_RANGE: RangeInclusive<u8> = 0x10 ..= 0x2f;
 
 #[derive(Debug, Hash, PartialEq, Eq, Copy, Clone)]
 pub enum Channel {

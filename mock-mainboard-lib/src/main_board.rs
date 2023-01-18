@@ -21,6 +21,7 @@ use balboa_spa_messages::parsed_enum::ParsedEnum;
 use crate::channel_tracker::{ChannelTracker, DeviceKey};
 use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
+use crate::timer_tracker::{TickAction, TimerTracker};
 use crate::transport::Transport;
 
 /// Amount of time to wait when we issue NewClientClearToSend or ClearToSend for a reply
@@ -63,6 +64,7 @@ where
 
   pub fn into_runner(self) -> (ControlHandle, Runner<R, W>) {
     let (tx, rx) = mpsc::sync_channel(32);
+    let state = MainBoardState::default();
     let message_reader = MessageReader {
       message_tx: tx.clone(),
       framed_reader: self.framed_reader,
@@ -70,12 +72,13 @@ where
     let timer_setup = TimerSetup {
       timer_tx: tx.clone(),
       init_delay: self.init_delay,
+      main_tick_hz: state.timer_tracker.total_ticks_per_cycle(),
     };
     let event_handler = EventHandler {
       event_rx: rx,
       framed_writer: self.framed_writer,
       message_logger: MessageLogger::default(),
-      state: MainBoardState::default(),
+      state,
       clear_to_send_window: self.clear_to_send_window,
     };
 
@@ -180,6 +183,7 @@ impl<R: Read + Send> MessageReader<R> {
 struct TimerSetup {
   timer_tx: SyncSender<Event>,
   init_delay: Option<Duration>,
+  main_tick_hz: usize,
 }
 
 impl TimerSetup {
@@ -188,9 +192,12 @@ impl TimerSetup {
     let mut guards = Vec::new();
 
     let main_tick_tx = self.timer_tx.clone();
+    let main_tick_hz = u64::try_from(self.main_tick_hz)?;
+    let main_tick_duration = Duration::from_millis(1000 / main_tick_hz);
+    info!("Scheduling main timer @ {main_tick_hz} Hz...");
     let guard = timer.schedule_repeating(
-        chrono::Duration::from_std(Duration::from_millis(1000 / 20))?, move || {
-      let _ = main_tick_tx.send(Event::TimerTick(TimerId::Update20Hz));
+        chrono::Duration::from_std(main_tick_duration)?, move || {
+      let _ = main_tick_tx.send(Event::TimerTick(TimerId::SendTickMessage));
     });
     guards.push(guard);
 
@@ -225,7 +232,7 @@ struct MainBoardState {
   mock_spa: MockSpa,
   channel_tracker: ChannelTracker,
   authorized_sender: Option<AuthorizedSender>,
-  timer_tick: usize,
+  timer_tracker: TimerTracker,
 }
 
 #[derive(Debug)]
@@ -442,14 +449,11 @@ impl<W: Write + Send> EventHandler<W> {
 
   fn handle_timer(&mut self, timer_id: TimerId) -> Result<(), HandlingError> {
     match timer_id {
-      TimerId::Update20Hz => {
+      TimerId::SendTickMessage => {
         if self.can_send_now() {
-          if self.state.timer_tick >= 21 {
-            self.state.timer_tick = 0;
-          }
-          self.state.timer_tick += 1;
-          let message = match self.state.timer_tick {
-            1 => {
+          let tick_action = self.state.timer_tracker.next_action();
+          let message = match tick_action {
+            TickAction::NewClientClearToSend => {
               // Sort of odd to say we expect a reply but for our purposes this just means
               // that we won't perform any writes until we timeout hearing back from any
               // new clients.  This is important since if we try to write again right after
@@ -458,18 +462,17 @@ impl<W: Write + Send> EventHandler<W> {
                 MessageType::NewClientClearToSend()
                     .to_message(Channel::MulticastChannelAssignment)?))
             },
-            2 => {
+            TickAction::StatupUpdate => {
               Some(SendMessage::no_reply(
                 MessageType::StatusUpdate(self.state.mock_spa.as_status())
                     .to_message(Channel::MulticastBroadcast)?))
             },
-            tick => {
+            TickAction::ClearToSend { index } => {
               let num_channels = self.state.channel_tracker.len();
               if num_channels == 0 {
                 None
               } else {
-                let adjusted_tick = tick - 2;
-                let client_index = adjusted_tick % num_channels;
+                let client_index = index % num_channels;
                 let target = Channel::new_client_channel(client_index)
                     .map_err(|_| {
                       HandlingError::FatalError("Inconsistent channel overflow behaviour!".to_owned())
@@ -500,9 +503,7 @@ impl<W: Write + Send> EventHandler<W> {
           }
           true
         } else {
-          warn!(
-                "Skipping timer tick={}, active authorized sender on {:?}",
-                self.state.timer_tick, authorized.channel);
+          warn!("Skipping timer tick, active authorized sender on {:?}", authorized.channel);
           false
         }
       }
@@ -627,5 +628,5 @@ impl SendMessage {
 
 #[derive(Debug)]
 enum TimerId {
-  Update20Hz,
+  SendTickMessage,
 }

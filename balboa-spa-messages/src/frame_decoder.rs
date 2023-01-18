@@ -177,7 +177,7 @@ impl FrameDecoder {
           self.num_bytes_expected = None;
           self.current_message.clear();
         } else if was_in_error {
-          info!("Regained stream successfully: {:?}", self.latest_lost_bytes);
+          info!("Regained stream successfully, lost bytes were: {:?}", self.latest_lost_bytes);
           self.latest_lost_bytes.clear();
         }
       }

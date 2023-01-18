@@ -1,6 +1,10 @@
+use std::fmt::Debug;
 use crc::{Algorithm, Crc};
 use log::{error, info, trace, warn};
 use crate::message::Message;
+use crate::ring_buffer::ByteRingBuffer;
+
+const ERROR_BUF_SIZE: usize = 128;
 
 #[derive(Debug)]
 pub struct FrameDecoder {
@@ -8,6 +12,7 @@ pub struct FrameDecoder {
   num_bytes_expected: Option<usize>,
   current_message: Vec<u8>,
   frames_with_errors: usize,
+  latest_lost_bytes: ByteRingBuffer,
 }
 
 #[derive(Debug, PartialOrd, PartialEq, Clone)]
@@ -43,6 +48,7 @@ impl Default for FrameDecoder {
       num_bytes_expected: None,
       current_message: vec![],
       frames_with_errors: 0,
+      latest_lost_bytes: ByteRingBuffer::with_max_size(ERROR_BUF_SIZE),
     }
   }
 }
@@ -69,6 +75,10 @@ impl FrameDecoder {
       }
     } else {
       self.move_to_state(DecoderState::LostPlace);
+    }
+
+    if self.is_in_error() {
+      self.latest_lost_bytes.push(byte);
     }
 
     None
@@ -107,7 +117,7 @@ impl FrameDecoder {
             self.current_message.push(byte);
             *expected_ref -= 1;
             if *expected_ref == 0 {
-              self.move_to_state(DecoderState::GotMessage)
+              self.move_to_state(DecoderState::GotMessage);
             }
             true
           }
@@ -152,21 +162,28 @@ impl FrameDecoder {
     }
   }
 
-  fn move_to_state(&mut self, new_state: DecoderState) {
-    let old_state = &self.state;
-    if old_state != &new_state {
+  fn move_to_state(&mut self, new_state: DecoderState) -> bool {
+    let old_state = self.state.clone();
+    if old_state != new_state {
       trace!("Moving from {old_state:?} to {new_state:?}...");
-      if new_state == DecoderState::LostPlace {
-        self.frames_with_errors += 1;
-        let errors = self.frames_with_errors;
-        warn!("Communication error ({errors} total so far!) in state={old_state:?}, trying to regain stream...");
-        self.num_bytes_expected = None;
-        self.current_message.clear();
-      } else if old_state == &DecoderState::LostPlaceGotEnd {
-        info!("Regained stream successfully!");
+      let was_in_error = self.is_in_error();
+      self.state = new_state;
+      let is_in_error = self.is_in_error();
+      if is_in_error != was_in_error {
+        if is_in_error {
+          self.frames_with_errors += 1;
+          let errors = self.frames_with_errors;
+          warn!("Communication error ({errors} total so far!) in state={old_state:?}, trying to regain stream...");
+          self.num_bytes_expected = None;
+          self.current_message.clear();
+        } else if was_in_error {
+          info!("Regained stream successfully: {:?}", self.latest_lost_bytes);
+          self.latest_lost_bytes.clear();
+        }
       }
-      self.state = new_state
+      return true;
     }
+    false
   }
 
   pub fn frames_with_errors(&self) -> usize {
@@ -174,12 +191,13 @@ impl FrameDecoder {
   }
 
   pub fn is_in_error(&self) -> bool {
-    self.state == DecoderState::LostPlace
+    matches!(self.state, DecoderState::LostPlace | DecoderState::LostPlaceGotEnd)
   }
 }
 
 #[cfg(test)]
 mod tests {
+  use log::LevelFilter;
   use crate::channel::Channel;
   use crate::frame_encoder::FrameEncoder;
   use super::*;
@@ -229,7 +247,13 @@ mod tests {
 
   #[test]
   fn test_regained_stream() {
+    let _ = env_logger::builder().filter_level(LevelFilter::Trace).is_test(true).try_init();
+
     let encoded_bad = b"\x4f\x00\xdb\x7e";
+    let encoded_bad_twice: Vec<_> = encoded_bad.iter()
+        .chain(encoded_bad.iter())
+        .copied()
+        .collect();
     let writer = FrameEncoder::new();
     let message = Message::new(Channel::MulticastChannelAssignment, 0x1, vec![0x02, 0x03, 0x04]);
     let encoded_correct = writer.encode(&message).unwrap();
@@ -243,8 +267,16 @@ mod tests {
     let third = decode_one(&mut reader, encoded_bad);
     assert_eq!(reader.state, DecoderState::LostPlaceGotEnd);
     assert_eq!(third, None);
-    let third = decode_one(&mut reader, &encoded_correct);
+    let error_buf: Vec<_> = reader.latest_lost_bytes.iter().copied().collect();
+    assert_eq!(error_buf, encoded_bad_twice);
+
+    let first_correct = reader.accept(encoded_correct[0]);
+    assert_eq!(first_correct, None);
+    assert_eq!(reader.state, DecoderState::GotStart);
+    let third = decode_one(&mut reader, &encoded_correct[1..]);
     assert_eq!(third, Some(message));
+
+    assert_eq!(reader.frames_with_errors, 1);
   }
 
   #[test]

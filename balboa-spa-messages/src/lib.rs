@@ -12,3 +12,4 @@ mod array_utils;
 pub mod framed_reader;
 pub mod frame_encoder;
 pub mod framed_writer;
+mod ring_buffer;

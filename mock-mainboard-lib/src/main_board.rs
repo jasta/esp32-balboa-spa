@@ -26,7 +26,7 @@ use crate::transport::Transport;
 
 /// Amount of time to wait when we issue NewClientClearToSend or ClearToSend for a reply
 /// before we can resume sending messages.
-const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(30);
+const DEFAULT_CLEAR_TO_SEND_WINDOW: Duration = Duration::from_millis(20);
 
 pub struct MainBoard<R, W> {
   framed_reader: FramedReader<R>,

@@ -89,7 +89,9 @@ impl std::io::Read for EspUartRx {
       assert_eq!(n, 1);
 
       // Now let's try again with the RX buffer.
-      self.read_with_rx_buffer(&mut buf[1..]).map_err(err_to_std)
+      self.read_with_rx_buffer(&mut buf[1..])
+          .map(|n| n + 1)
+          .map_err(err_to_std)
     } else {
       self.read_with_rx_buffer(buf).map_err(err_to_std)
     }
@@ -100,6 +102,9 @@ impl EspUartRx {
   /// Perform a UART read but _only_ take bytes from the RX buffer (i.e. do not wait
   /// for more data to become available and return immediately if none are).
   fn read_with_rx_buffer(&mut self, buf: &mut [u8]) -> Result<usize, EspError> {
+    if buf.len() == 0 {
+      return Ok(0)
+    }
     let available = self.rx_driver.count()?;
     if available == 0 {
       Ok(0)

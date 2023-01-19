@@ -67,6 +67,7 @@ pub enum MessageType {
     cycles: Vec<FilterCycle>,
   } = 0x23,
   InformationResponse(InformationResponseMessage) = 0x24,
+  Settings0x04Response(Settings0x04ResponseMessage) = 0x25,
   PreferencesResponse(PreferencesResponseMessage) = 0x26,
   SetPreferenceRequest(SetPreferenceMessage) = 0x27,
   FaultLogResponse(FaultResponseMessage) = 0x28,
@@ -559,6 +560,7 @@ pub enum SettingsRequestMessage {
   Configuration,
   FilterCycles,
   Information,
+  Settings0x04,
   Preferences,
   FaultLog {
     entry_num: u8,
@@ -575,6 +577,8 @@ impl From<&SettingsRequestMessage> for Vec<u8> {
         vec![0x01, 0x0, 0x0],
       SettingsRequestMessage::Information =>
         vec![0x02, 0x0, 0x0],
+      SettingsRequestMessage::Settings0x04 =>
+        vec![0x04, 0x0, 0x0],
       SettingsRequestMessage::Preferences =>
         vec![0x08, 0x0, 0x0],
       SettingsRequestMessage::FaultLog { entry_num } =>
@@ -594,6 +598,7 @@ impl TryFrom<&[u8]> for SettingsRequestMessage {
       0x00 => Self::Configuration,
       0x01 => Self::FilterCycles,
       0x02 => Self::Information,
+      0x04 => Self::Settings0x04,
       0x08 => Self::Preferences,
       0x20 => Self::FaultLog { entry_num: cursor.read_u8()? },
       0x80 => Self::GfciTest,
@@ -608,6 +613,29 @@ pub struct FilterCycle {
   enabled: bool,
   start_at: Duration,
   duration: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct Settings0x04ResponseMessage {
+  pub unknown: Vec<u8>,
+}
+
+impl TryFrom<&Settings0x04ResponseMessage> for Vec<u8> {
+  type Error = PayloadEncodeError;
+
+  fn try_from(value: &Settings0x04ResponseMessage) -> Result<Self, Self::Error> {
+    Ok(value.unknown.to_owned())
+  }
+}
+
+impl TryFrom<&[u8]> for Settings0x04ResponseMessage {
+  type Error = PayloadParseError;
+
+  fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    Ok(Self {
+      unknown: value.to_owned(),
+    })
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -1298,6 +1326,8 @@ impl TryFrom<MessageType> for Vec<u8> {
         return Err(PayloadEncodeError::NotSupported)
       }
       MessageType::InformationResponse(message) =>
+        Vec::<u8>::try_from(&message)?,
+      MessageType::Settings0x04Response(message) =>
         Vec::<u8>::try_from(&message)?,
       MessageType::PreferencesResponse(message) =>
         Vec::<u8>::try_from(&message)?,

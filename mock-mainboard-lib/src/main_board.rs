@@ -15,7 +15,7 @@ use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::{EncodeError, Message};
-use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, MessageType, PayloadEncodeError, SettingsRequestMessage, SoftwareVersion};
+use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationResponseMessage, Settings0x04ResponseMessage, MessageType, PayloadEncodeError, SettingsRequestMessage, SoftwareVersion};
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 
 use crate::channel_tracker::{ChannelTracker, DeviceKey};
@@ -366,6 +366,13 @@ impl<W: Write + Send> EventHandler<W> {
               self.state.mock_spa.as_fault_log(entry_num)
             ).to_message(src_channel)?))
           }
+          SettingsRequestMessage::Settings0x04 => {
+            // No clue...
+            let unknown = vec![0x02, 0x02, 0x32, 0x63, 0x50, 0x68, 0x20, 0x07, 0x01];
+            Some(SendMessage::no_reply(MessageType::Settings0x04Response(Settings0x04ResponseMessage {
+              unknown,
+            }).to_message(src_channel)?))
+          }
           n => {
             error!("Unhandled settings request: {n:?}");
             None
@@ -470,7 +477,9 @@ impl<W: Write + Send> EventHandler<W> {
             TickAction::ClearToSend { index } => {
               let num_channels = self.state.channel_tracker.len();
               if num_channels == 0 {
-                None
+                Some(SendMessage::expect_reply(
+                  MessageType::NewClientClearToSend()
+                      .to_message(Channel::MulticastChannelAssignment)?))
               } else {
                 let client_index = index % num_channels;
                 let target = Channel::new_client_channel(client_index)

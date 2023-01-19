@@ -71,7 +71,7 @@ impl ChannelTracker {
     self.records.contains_key(channel)
   }
 
-  pub fn record_cts_success(&mut self, channel: Channel) {
+  pub fn record_cts_success(&mut self, channel: &Channel) {
     if let Some(record) = self.records.get_mut(&channel) {
       record.consecutive_cts_failures = 0;
     }

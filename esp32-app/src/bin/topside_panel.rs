@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
       Some(peripherals.pins.gpio13))?;
 
   let panel = TopsidePanel::new(transport);
-  panel.run_loop()?;
+  panel.run_read_test()?;
   Ok(())
 }
 
@@ -39,6 +39,13 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     let reader = FramedReader::new(raw_reader);
     let writer = FramedWriter::new(raw_writer);
     Self { reader, writer }
+  }
+
+  pub fn run_read_test(mut self) -> anyhow::Result<()> {
+    loop {
+      let message = self.reader.next_message()?;
+      info!("Got {message:?}");
+    }
   }
 
   pub fn run_loop(mut self) -> anyhow::Result<()> {

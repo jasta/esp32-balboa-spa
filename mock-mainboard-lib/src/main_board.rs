@@ -496,10 +496,10 @@ impl<W: Write + Send> EventHandler<W> {
         if authorized.authorized_at.elapsed() > self.clear_to_send_window {
           // Only log if we genuinely expected a reply...
           if authorized.channel != Channel::MulticastChannelAssignment {
+            let action = self.state.channel_tracker.record_cts_failure(authorized.channel);
             error!(
-                "Authorized sender on channel={:?} timed out, clearing...",
+                "Authorized sender on channel={:?} timed out: {action:?}",
                 authorized.channel);
-            self.state.channel_tracker.record_cts_failure(authorized.channel);
           }
           true
         } else {

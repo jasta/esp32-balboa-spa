@@ -38,7 +38,7 @@ impl TemperatureScale {
       TemperatureScale::Celsius => Temperature::from_celsius(raw_value_f * CELSIUS_SCALE),
     };
     ProtocolTemperature {
-      raw_scale: self.clone(),
+      raw_scale: *self,
       raw_value,
       temperature,
     }
@@ -47,7 +47,7 @@ impl TemperatureScale {
   pub fn new_protocol_temperature(&self, target: Temperature) -> anyhow::Result<ProtocolTemperature> {
     let set_temp = self.new_set_temperature(&target)?;
     Ok(ProtocolTemperature {
-      raw_scale: self.clone(),
+      raw_scale: *self,
       raw_value: set_temp.raw_value,
       temperature: target,
     })

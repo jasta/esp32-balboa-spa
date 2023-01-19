@@ -202,7 +202,7 @@ impl TimerSetup {
     guards.push(guard);
 
     if let Some(init_delay) = self.init_delay {
-      let init_tx = self.timer_tx.clone();
+      let init_tx = self.timer_tx;
       let guard = timer.schedule_with_delay(
           chrono::Duration::from_std(init_delay)?, move || {
         let _ = init_tx.send(Event::InitFinished);
@@ -313,7 +313,7 @@ impl<W: Write + Send> EventHandler<W> {
     let reply = match parsed {
       MessageType::ChannelAssignmentRequest { device_type, client_hash } => {
         let key = DeviceKey { device_type, client_hash };
-        let selected_channel = self.state.channel_tracker.select_channel(key.clone())?;
+        let selected_channel = self.state.channel_tracker.select_channel(key)?;
         info!("Assigned {key:?} to {selected_channel:?}");
         Some(SendMessage::expect_reply_on_channel(MessageType::ChannelAssignmentResponse {
           channel: selected_channel,

@@ -222,12 +222,12 @@ impl UserSettings {
       u8::try_from(now.hour()).unwrap(),
       u8::try_from(now.minute()).unwrap());
     let set_temperature = self.temperature_scale.new_protocol_temperature(
-        self.set_temperature.clone()).unwrap();
+        self.set_temperature).unwrap();
     UserSettingsStatus {
       time,
-      temperature_scale: self.temperature_scale.clone(),
-      temperature_range: self.temp_range.clone(),
-      clock_mode: self.clock_mode.clone(),
+      temperature_scale: self.temperature_scale,
+      temperature_range: self.temp_range,
+      clock_mode: self.clock_mode,
       set_temperature,
     }
   }
@@ -245,14 +245,14 @@ pub struct UserSettingsStatus {
 impl MockHardware {
   pub fn as_status(&self) -> HardwareStatus {
     let pumps = self.pumps.iter()
-        .map(|d| ParsedEnum::new(d.status.clone()))
+        .map(|d| ParsedEnum::new(d.status))
         .collect();
     let lights = self.lights.iter()
-        .map(|d| ParsedEnum::new(d.status.clone()))
+        .map(|d| ParsedEnum::new(d.status))
         .collect();
     HardwareStatus {
       pumps,
-      blower: ParsedEnum::new(self.blower.status.clone()),
+      blower: ParsedEnum::new(self.blower.status),
       lights,
     }
   }

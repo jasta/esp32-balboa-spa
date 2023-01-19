@@ -417,11 +417,11 @@ impl TryFrom<&StatusUpdateResponseV1> for Vec<u8> {
     }
 
     let flags9_14 = StatusFlags9_14 {
-      temperature_scale: value.set_temperature.raw_scale.clone(),
+      temperature_scale: value.set_temperature.raw_scale,
       clock_mode: value.clock_mode.as_ref().unwrap().to_owned(),
       filter_mode: value.filter_mode.as_ref().unwrap().to_owned(),
       panel_locked: value.panel_locked,
-      temperature_range: value.temperate_range.clone(),
+      temperature_range: value.temperate_range,
       needs_heat: value.needs_heat,
       heating_state: value.heating_state.as_ref().unwrap().to_owned(),
       pump1_status: pump_status[0],
@@ -508,7 +508,7 @@ impl TryFrom<&[u8]> for StatusUpdateResponseV1 {
       unpacked9_14.pump6_status,
     ]
         .into_iter()
-        .map(|p| ParsedEnum::new(p))
+        .map(ParsedEnum::new)
         .collect();
 
     let light_status = [
@@ -516,7 +516,7 @@ impl TryFrom<&[u8]> for StatusUpdateResponseV1 {
       unpacked9_14.light2_status,
     ]
         .into_iter()
-        .map(|l| ParsedEnum::new(l))
+        .map(ParsedEnum::new)
         .collect();
 
     Ok(Self {
@@ -1052,7 +1052,7 @@ impl TryFrom<&[u8]> for ConfigurationResponseMessage {
       unpacked.pump6,
     ]
         .into_iter()
-        .map(|p| ParsedEnum::new(p))
+        .map(ParsedEnum::new)
         .collect();
 
     let has_lights = [

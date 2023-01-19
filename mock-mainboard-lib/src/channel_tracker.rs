@@ -83,6 +83,7 @@ impl ChannelTracker {
         let record = o.get_mut();
         record.consecutive_cts_failures += 1;
         if record.consecutive_cts_failures >= self.max_cts_failures {
+          self.lookup_by_device.remove(&record.device_key);
           o.remove();
           CtsFailureAction::ChannelRemoved
         } else {
@@ -125,5 +126,8 @@ mod tests {
       let action = tracker.record_cts_failure(channel);
       assert_eq!(action, expected);
     }
+
+    assert_eq!(tracker.records.len(), 0);
+    assert_eq!(tracker.lookup_by_device.len(), 0);
   }
 }

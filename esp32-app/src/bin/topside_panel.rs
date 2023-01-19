@@ -42,9 +42,13 @@ struct TopsidePanel<R, W> {
   writer: FramedWriter<W>,
   state: GetVersionTestState,
   my_channel: Option<Channel>,
+  model_number: Option<String>,
 }
 
+const MY_CLIENT_HASH: u16 = 0xcafe;
+
 impl<R: Read, W: Write> TopsidePanel<R, W> {
+
   pub fn new(transport: impl Transport<R, W>) -> Self {
     let (raw_reader, raw_writer) = transport.split();
     let reader = FramedReader::new(raw_reader);
@@ -54,6 +58,7 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       writer,
       state: GetVersionTestState::NeedChannelWaitingCTS,
       my_channel: None,
+      model_number: None,
     }
   }
 
@@ -69,9 +74,6 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       let message = self.reader.next_message()?;
       info!("<= {message:?}");
 
-      let mut system_model_number = None;
-      let my_hash = 0xcafe;
-
       match MessageType::try_from(&message) {
         Ok(mt) => {
           match (message.channel, mt) {
@@ -80,21 +82,20 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
                 self.send_message(
                   &MessageType::ChannelAssignmentRequest {
                     device_type: 0x0,
-                    client_hash: my_hash,
+                    client_hash: MY_CLIENT_HASH,
                   }.to_message(Channel::MulticastChannelAssignment)?)?;
                 self.move_to_state(GetVersionTestState::NeedChannelWaitingAssignment);
               }
             }
             (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, client_hash }) => {
               if self.state == GetVersionTestState::NeedChannelWaitingAssignment &&
-                  client_hash == my_hash {
+                  client_hash == MY_CLIENT_HASH {
                 self.my_channel = Some(channel);
                 self.send_message(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
                 self.move_to_state(GetVersionTestState::NeedInfoWaitingCTS);
               }
             }
             (channel, MessageType::ClearToSend()) => {
-              debug!("CTS on {channel:?} (my_channel={:?})", self.my_channel);
               if self.my_channel == Some(channel) {
                 match self.state {
                   GetVersionTestState::NeedInfoWaitingCTS => {
@@ -113,11 +114,11 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
               if self.state == GetVersionTestState::NeedInfoWaitingInfo &&
                   self.my_channel == Some(channel) {
                 info!("Got system model number: {}", info.system_model_number);
-                system_model_number = Some(info.system_model_number);
+                self.model_number = Some(info.system_model_number);
               }
             }
             (channel, MessageType::StatusUpdate(status)) => {
-              debug!("system_model_number={system_model_number:?}");
+              debug!("system_model_number={:?}", self.model_number);
             }
             _ => warn!("Unhandled: {message:?}"),
           }

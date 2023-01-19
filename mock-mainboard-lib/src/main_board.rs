@@ -2,6 +2,7 @@
 //! and validate the overall correctness of implementations.
 
 use std::{mem, thread};
+use std::borrow::{Borrow, BorrowMut};
 use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, SendError, SyncSender};
@@ -19,7 +20,8 @@ use balboa_spa_messages::message_types::{HeaterType, HeaterVoltage, InformationR
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 
 use crate::channel_tracker::{ChannelTracker, CtsFailureAction, DeviceKey};
-use crate::clear_to_send_tracker::{NoCtsReason, ClearToSendTracker, SendMessage, SendMessageFactory, TrySendMessageError};
+use crate::channel_manager::{ChannelManager, CtsEnforcementPolicy};
+use crate::clear_to_send_tracker::{ClearToSendTracker, NoCtsReason, SendMessage, SendMessageFactory, TrySendMessageError};
 use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::timer_tracker::{TickAction, TimerTracker};
@@ -29,7 +31,7 @@ pub struct MainBoard<R, W> {
   framed_reader: FramedReader<R>,
   framed_writer: FramedWriter<W>,
   init_delay: Option<Duration>,
-  cts_tracker: Option<ClearToSendTracker>,
+  channel_manager: Option<ChannelManager>,
 }
 
 impl<R, W> MainBoard<R, W>
@@ -45,7 +47,7 @@ where
       framed_reader,
       framed_writer,
       init_delay: None,
-      cts_tracker: None,
+      channel_manager: None,
     }
   }
 
@@ -54,15 +56,15 @@ where
     self
   }
 
-  pub fn set_clear_to_send_policy(mut self, cts_window: Duration) -> Self {
-    self.cts_tracker = Some(ClearToSendTracker::with_policy(cts_window));
+  pub fn set_clear_to_send_policy(mut self, cts_policy: CtsEnforcementPolicy, cts_window: Duration) -> Self {
+    self.channel_manager = Some(ChannelManager::with_policy(cts_policy, cts_window));
     self
   }
 
   pub fn into_runner(self) -> (ControlHandle, Runner<R, W>) {
     let (tx, rx) = mpsc::sync_channel(32);
     let state = MainBoardState {
-      clear_to_send_tracker: self.cts_tracker.unwrap_or_default(),
+      channel_manager: self.channel_manager.unwrap_or_default(),
       ..Default::default()
     };
     let message_reader = MessageReader {
@@ -167,7 +169,7 @@ impl<R: Read + Send> MessageReader<R> {
     loop {
       match self.framed_reader.next_message() {
         Ok(message) => {
-          self.message_tx.send(Event::ReceivedMessage(TimeSensitiveMessage::from_now(message)))?;
+          self.message_tx.send(Event::ReceivedMessage(message))?;
         }
         Err(e) => {
           self.message_tx.send(Event::ReadError(anyhow!("{:?}", e)))?;
@@ -228,8 +230,7 @@ struct EventHandler<W> {
 #[derive(Default)]
 struct MainBoardState {
   mock_spa: MockSpa,
-  channel_tracker: ChannelTracker,
-  clear_to_send_tracker: ClearToSendTracker,
+  channel_manager: ChannelManager,
   timer_tracker: TimerTracker,
 }
 
@@ -262,8 +263,8 @@ impl<W: Write + Send> EventHandler<W> {
   /// the protocol.
   fn log_event(&self, event: &Event) {
     match event {
-      Event::ReceivedMessage(bundle) => {
-        self.message_logger.log(MessageDirection::Inbound, &bundle.message);
+      Event::ReceivedMessage(message) => {
+        self.message_logger.log(MessageDirection::Inbound, message);
       }
       Event::ReadError(_) => error!("{event:?}"),
       Event::InitFinished => info!("{event:?}"),
@@ -274,7 +275,7 @@ impl<W: Write + Send> EventHandler<W> {
 
   fn handle_event(&mut self, event: Event) -> Result<(), HandlingError> {
     match event {
-      Event::ReceivedMessage(bundle) => self.handle_message(bundle)?,
+      Event::ReceivedMessage(message) => self.handle_message(message)?,
       Event::ReadError(e) => {
         return Err(HandlingError::FatalError(format!("Read error: {e:?}")))
       }
@@ -287,12 +288,11 @@ impl<W: Write + Send> EventHandler<W> {
     Ok(())
   }
 
-  fn handle_message(&mut self, bundle: TimeSensitiveMessage) -> Result<(), HandlingError> {
-    self.validate_message(&bundle)?;
-    let message = &bundle.message;
-    match MessageType::try_from(message) {
+  fn handle_message(&mut self, message: Message) -> Result<(), HandlingError> {
+    self.channel_manager_mut().validate_message(&message)?;
+    match MessageType::try_from(&message) {
       Ok(parsed) => {
-        match self.start_send_message()? {
+        match self.channel_manager_mut().start_send_message()? {
           None => {
             Err(HandlingError::ClientNeedsReconnect(
                 format!("Can't send reply on {:?} due to CTS errors!", message.channel)))
@@ -319,7 +319,7 @@ impl<W: Write + Send> EventHandler<W> {
     let reply = match parsed {
       MessageType::ChannelAssignmentRequest { device_type, client_hash } => {
         let key = DeviceKey { device_type, client_hash };
-        let selected_channel = self.state.channel_tracker.select_channel(key)?;
+        let selected_channel = self.channel_manager_mut().select_channel(key)?;
         info!("Assigned {key:?} to {selected_channel:?}");
         Some(smf.expect_reply_on_channel(MessageType::ChannelAssignmentResponse {
           channel: selected_channel,
@@ -413,61 +413,14 @@ impl<W: Write + Send> EventHandler<W> {
     Ok(reply)
   }
 
-  fn validate_message(&mut self, bundle: &TimeSensitiveMessage) -> Result<(), HandlingError> {
-    let cts_result = self.state.clear_to_send_tracker
-        .try_accept_incoming_message(&bundle.message);
-    let channel = &bundle.message.channel;
-    let result = match cts_result {
-      Ok(_) => {
-        self.state.channel_tracker.record_cts_success(channel);
-        Ok(())
-      },
-      Err(e) => {
-        let reason = e.reason;
-        let cts_action = self.state.channel_tracker.record_cts_failure(*channel);
-        info!("CTS violation on channel={channel:?} for {reason:?}: {cts_action:?}");
-        let err_msg = match reason {
-          NoCtsReason::NoAuthorizedSenders => "No authorized senders".to_owned(),
-          NoCtsReason::ConflictsWithOther => format!("Waiting for sender on {:?}", e.authorized_channel),
-          NoCtsReason::ExpiredWindow => format!("Window expired on {:?}", e.attempted_channel),
-        };
-        Err(match cts_action {
-          CtsFailureAction::ChannelNotFound |
-          CtsFailureAction::ChannelRemoved => HandlingError::ClientNeedsReconnect(err_msg),
-          CtsFailureAction::Tolerated => HandlingError::ClientRecoverable(err_msg),
-        })
-      }
-    };
-
-    match channel {
-      Channel::Client(_) => {
-        if !self.state.channel_tracker.is_allocated(channel) {
-          return Err(HandlingError::ClientNeedsReconnect(
-            format!("Received message on unassigned channel={channel:?}, ignoring...")));
-        }
-      }
-      Channel::MulticastChannelAssignment => {}
-      _ => {
-        return Err(HandlingError::ClientUnsupported(
-          format!("Received message on unexpected channel={channel:?}, ignoring...")));
-      }
-    }
-
-    result
-  }
-
   fn handle_timer(&mut self, timer_id: TimerId) -> Result<(), HandlingError> {
     match timer_id {
       TimerId::SendTickMessage => {
-        if let Ok(Some(smf)) = self.start_send_message() {
+        if let Some(smf) = self.channel_manager_mut().start_send_message()? {
           let tick_action = self.state.timer_tracker.next_action();
           let message = match tick_action {
             TickAction::NewClientClearToSend => {
-              // Sort of odd to say we expect a reply but for our purposes this just means
-              // that we won't perform any writes until we timeout hearing back from any
-              // new clients.  This is important since if we try to write again right after
-              // sending this we might clobber data and get stuck in a starvation loop.
-              Some(smf.expect_reply(
+              Some(smf.maybe_expect_reply(
                 MessageType::NewClientClearToSend()
                     .to_message(Channel::MulticastChannelAssignment)?))
             },
@@ -477,7 +430,7 @@ impl<W: Write + Send> EventHandler<W> {
                     .to_message(Channel::MulticastBroadcast)?))
             },
             TickAction::ClearToSend { index } => {
-              let num_channels = self.state.channel_tracker.len();
+              let num_channels = self.channel_manager().num_channels();
               if num_channels == 0 {
                 None
               } else {
@@ -499,35 +452,10 @@ impl<W: Write + Send> EventHandler<W> {
     Ok(())
   }
 
-  fn start_send_message(&mut self) -> Result<Option<SendMessageFactory>, HandlingError> {
-    match self.state.clear_to_send_tracker.start_send_message() {
-      Ok(smf) => Ok(Some(smf)),
-      Err(TrySendMessageError::WaitingToClear) => Ok(None),
-      Err(TrySendMessageError::ClientError(channel)) => {
-        let cts_action = self.state.channel_tracker.record_cts_failure(channel);
-        info!("CTS window expired on channel={channel:?}: {cts_action:?}");
-        match cts_action {
-          CtsFailureAction::ChannelNotFound => {
-            Err(HandlingError::FatalError(
-                format!("{channel:?} not found but it is authorized???")))
-          }
-          CtsFailureAction::ChannelRemoved => {
-            // Try again, should work now...
-            match self.state.clear_to_send_tracker.start_send_message() {
-              Ok(smf) => Ok(Some(smf)),
-              Err(e) => Err(HandlingError::FatalError(format!("{e:?}"))),
-            }
-          }
-          CtsFailureAction::Tolerated => Ok(None),
-        }
-      }
-    }
-  }
-
   fn send_message(&mut self, send: SendMessage) -> Result<(), HandlingError> {
     self.message_logger.log(MessageDirection::Outbound, &send.message);
 
-    self.state.clear_to_send_tracker.on_send(&send);
+    self.channel_manager_mut().handle_presend(&send);
 
     // Note that this is a blocking write, meaning that we don't have to worry about
     // clear-to-send timing if it takes too long since our timer simply won't tick until we
@@ -540,6 +468,14 @@ impl<W: Write + Send> EventHandler<W> {
         .map_err(err_mapper)?;
 
     Ok(())
+  }
+
+  fn channel_manager(&self) -> &ChannelManager {
+    self.state.channel_manager.borrow()
+  }
+
+  fn channel_manager_mut(&mut self) -> &mut ChannelManager {
+    self.state.channel_manager.borrow_mut()
   }
 }
 
@@ -585,27 +521,11 @@ impl From<EncodeError> for HandlingError {
 
 #[derive(Debug)]
 enum Event {
-  ReceivedMessage(TimeSensitiveMessage),
+  ReceivedMessage(Message),
   ReadError(anyhow::Error),
   InitFinished,
   TimerTick(TimerId),
   Shutdown,
-}
-
-#[derive(Debug)]
-struct TimeSensitiveMessage {
-  creation: Instant,
-  message: Message,
-}
-
-impl TimeSensitiveMessage {
-  #[inline]
-  pub fn from_now(message: Message) -> Self {
-    Self {
-      creation: Instant::now(),
-      message,
-    }
-  }
 }
 
 #[derive(Debug)]

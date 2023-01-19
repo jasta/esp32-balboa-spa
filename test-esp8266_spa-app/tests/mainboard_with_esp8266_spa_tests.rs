@@ -3,7 +3,9 @@ extern crate core;
 use std::thread;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 use log::LevelFilter;
+use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use mock_mainboard_lib::transport::StdTransport;
 
@@ -25,7 +27,8 @@ fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   let server_in = child.stdout.take().unwrap();
   let client_debug = child.stderr.take().unwrap();
 
-  let main_board = MainBoard::new(StdTransport::new(server_in, server_out));
+  let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
+      .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX);
   let (control_handle, runner) = main_board.into_runner();
 
   let run_thread = thread::Builder::new()

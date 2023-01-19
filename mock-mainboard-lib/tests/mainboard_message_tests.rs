@@ -7,6 +7,7 @@ use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
+use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use mock_mainboard_lib::transport::StdTransport;
 
@@ -16,7 +17,7 @@ fn mainboard_get_version() -> anyhow::Result<()> {
 
   let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
   let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_clear_to_send_policy(Duration::MAX);
+      .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX);
   let (shutdown_handle, runner) = main_board.into_runner();
 
   let run_thread = thread::Builder::new()

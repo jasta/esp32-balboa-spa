@@ -39,7 +39,11 @@ impl Default for ChannelTracker {
 }
 
 impl ChannelTracker {
-  pub fn new(max_cts_failures: usize) -> Self {
+  pub fn new() -> Self {
+    Default::default()
+  }
+
+  pub fn with_max_failures(max_cts_failures: usize) -> Self {
     Self {
       max_cts_failures,
       ..Default::default()
@@ -114,7 +118,7 @@ mod tests {
 
   #[test]
   fn test_cts_failures() {
-    let mut tracker = ChannelTracker::new(2);
+    let mut tracker = ChannelTracker::with_max_failures(2);
     let channel = tracker.select_channel(DeviceKey { device_type: 0, client_hash: 0 }).unwrap();
     let expected_actions = [
       CtsFailureAction::Tolerated,

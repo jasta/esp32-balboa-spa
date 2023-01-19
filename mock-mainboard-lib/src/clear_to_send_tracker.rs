@@ -1,6 +1,5 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::mem;
-use std::ops::AddAssign;
 use std::time::{Duration, Instant};
 
 use log::{error, warn};
@@ -21,6 +20,7 @@ pub(crate) struct ClearToSendTracker {
 impl Default for ClearToSendTracker {
   fn default() -> Self {
     Self {
+      // Strict default for integration testing
       allowed_delay: DEFAULT_CLEAR_TO_SEND_WINDOW,
       authorized_sender: None,
     }
@@ -32,7 +32,7 @@ impl ClearToSendTracker {
     Default::default()
   }
 
-  pub fn with_policy(cts_window: Duration) -> Self {
+  pub fn with_window(cts_window: Duration) -> Self {
     Self {
       allowed_delay: cts_window,
       ..Default::default()
@@ -73,7 +73,9 @@ impl ClearToSendTracker {
   pub fn start_send_message(&self) -> Result<SendMessageFactory, TrySendMessageError> {
     match &self.authorized_sender {
       Some(authorized) => {
-        if authorized.authorized_at.elapsed() > self.allowed_delay {
+        if authorized.clear_on_next_send {
+          Ok(SendMessageFactory {})
+        } else if authorized.is_expired() {
           if let Channel::Client(_) = authorized.channel {
             Err(TrySendMessageError::ClientError(authorized.channel))
           } else {
@@ -89,12 +91,11 @@ impl ClearToSendTracker {
 
   pub fn on_send(&mut self, sm: &SendMessage) {
     if let Some(authorized) = &self.authorized_sender {
-      // Hmm, is this even possible given the typesafe logic we have around SendMessageFactory?
       warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
     }
 
     let authorized_sender = sm.expect_reply_on.map(|channel| {
-      AuthorizedSender::from_now(channel, self.allowed_delay)
+      AuthorizedSender::from_now(channel, self.allowed_delay, sm.clear_on_next_send)
     });
     self.authorized_sender = authorized_sender;
   }
@@ -104,6 +105,7 @@ impl ClearToSendTracker {
 struct AuthorizedSender {
   authorized_at: Instant,
   allowed_delay: Duration,
+  clear_on_next_send: bool,
   channel: Channel,
 }
 
@@ -135,11 +137,12 @@ pub(crate) enum NoCtsReason {
 }
 
 impl AuthorizedSender {
-  pub fn from_now(channel: Channel, allowed_delay: Duration) -> Self {
+  pub fn from_now(channel: Channel, allowed_delay: Duration, clear_on_next_send: bool) -> Self {
     Self {
       channel,
       authorized_at: Instant::now(),
       allowed_delay,
+      clear_on_next_send,
     }
   }
 
@@ -159,17 +162,25 @@ impl IncomingMessageError {
 }
 
 impl SendMessageFactory {
+  /// Special variation that records an authorized sender for debugging purposes but will
+  /// clear it next time we try to send something.
+  pub fn maybe_expect_reply(self, message: Message) -> SendMessage {
+    let mut sm = self.expect_reply(message);
+    sm.clear_on_next_send = true;
+    sm
+  }
+
   pub fn expect_reply(self, message: Message) -> SendMessage {
     let channel = message.channel;
-    SendMessage { message, expect_reply_on: Some(channel) }
+    self.expect_reply_on_channel(message, channel)
   }
 
   pub fn expect_reply_on_channel(self, message: Message, channel: Channel) -> SendMessage {
-    SendMessage { message, expect_reply_on: Some(channel) }
+    SendMessage { message, expect_reply_on: Some(channel), clear_on_next_send: false }
   }
 
   pub fn no_reply(self, message: Message) -> SendMessage {
-    SendMessage { message, expect_reply_on: None }
+    SendMessage { message, expect_reply_on: None, clear_on_next_send: false }
   }
 }
 
@@ -177,4 +188,5 @@ impl SendMessageFactory {
 pub struct SendMessage {
   pub message: Message,
   expect_reply_on: Option<Channel>,
+  clear_on_next_send: bool,
 }

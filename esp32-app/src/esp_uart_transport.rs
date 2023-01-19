@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::io;
 use std::io::{BufRead, ErrorKind};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
@@ -100,7 +101,7 @@ impl std::io::Read for EspUartRx {
 
 impl EspUartRx {
   /// Perform a UART read but _only_ take bytes from the RX buffer (i.e. do not wait
-  /// for more data to become available and return immediately if none are).
+  /// for more data to become available).
   fn read_with_rx_buffer(&mut self, buf: &mut [u8]) -> Result<usize, EspError> {
     if buf.len() == 0 {
       return Ok(0)

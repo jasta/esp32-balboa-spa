@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
+use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
 use esp_idf_hal::peripherals::Peripherals;
 use log::{debug, error, info, warn};
@@ -39,6 +40,8 @@ fn main() -> anyhow::Result<()> {
 struct TopsidePanel<R, W> {
   reader: FramedReader<R>,
   writer: FramedWriter<W>,
+  state: GetVersionTestState,
+  my_channel: Option<Channel>,
 }
 
 impl<R: Read, W: Write> TopsidePanel<R, W> {
@@ -46,7 +49,12 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     let (raw_reader, raw_writer) = transport.split();
     let reader = FramedReader::new(raw_reader);
     let writer = FramedWriter::new(raw_writer);
-    Self { reader, writer }
+    Self {
+      reader,
+      writer,
+      state: GetVersionTestState::NeedChannelWaitingCTS,
+      my_channel: None,
+    }
   }
 
   pub fn run_read_test(mut self) -> anyhow::Result<()> {
@@ -59,50 +67,51 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       let message = self.reader.next_message()?;
-      info!("Got {message:?}");
+      info!("<= {message:?}");
 
-      let mut state = GetVersionTestState::NeedChannelWaitingCTS;
-      let mut my_channel = None;
       let mut system_model_number = None;
+      let my_hash = 0xcafe;
 
       match MessageType::try_from(&message) {
         Ok(mt) => {
           match (message.channel, mt) {
             (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
-              if state == GetVersionTestState::NeedChannelWaitingCTS {
-                self.writer.write(
+              if self.state == GetVersionTestState::NeedChannelWaitingCTS {
+                self.send_message(
                   &MessageType::ChannelAssignmentRequest {
                     device_type: 0x0,
-                    client_hash: 0xcafe,
+                    client_hash: my_hash,
                   }.to_message(Channel::MulticastChannelAssignment)?)?;
-                state = GetVersionTestState::NeedChannelWaitingAssignment;
+                self.move_to_state(GetVersionTestState::NeedChannelWaitingAssignment);
               }
             }
-            (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
-              if state == GetVersionTestState::NeedChannelWaitingAssignment {
-                my_channel = Some(channel);
-                self.writer.write(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
-                state = GetVersionTestState::NeedInfoWaitingCTS;
+            (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, client_hash }) => {
+              if self.state == GetVersionTestState::NeedChannelWaitingAssignment &&
+                  client_hash == my_hash {
+                self.my_channel = Some(channel);
+                self.send_message(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
+                self.move_to_state(GetVersionTestState::NeedInfoWaitingCTS);
               }
             }
             (channel, MessageType::ClearToSend()) => {
-              if my_channel == Some(channel) {
-                match state {
+              debug!("CTS on {channel:?} (my_channel={:?})", self.my_channel);
+              if self.my_channel == Some(channel) {
+                match self.state {
                   GetVersionTestState::NeedInfoWaitingCTS => {
-                    self.writer.write(
+                    self.send_message(
                       &MessageType::SettingsRequest(SettingsRequestMessage::Information)
                           .to_message(channel)?)?;
-                    state = GetVersionTestState::NeedInfoWaitingInfo;
+                    self.move_to_state(GetVersionTestState::NeedInfoWaitingInfo);
                   }
                   _ => {
-                    self.writer.write(&MessageType::NothingToSend().to_message(channel)?)?;
+                    self.send_message(&MessageType::NothingToSend().to_message(channel)?)?;
                   }
                 }
               }
             }
             (channel, MessageType::InformationResponse(info)) => {
-              if state == GetVersionTestState::NeedInfoWaitingInfo &&
-                  my_channel == Some(channel) {
+              if self.state == GetVersionTestState::NeedInfoWaitingInfo &&
+                  self.my_channel == Some(channel) {
                 info!("Got system model number: {}", info.system_model_number);
                 system_model_number = Some(info.system_model_number);
               }
@@ -117,14 +126,13 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       }
     }
   }
-}
 
-struct StateMachine {
-  state: GetVersionTestState,
-}
+  fn send_message(&mut self, message: &Message) -> anyhow::Result<()> {
+    info!("=> {message:?}");
+    self.writer.write(message)
+  }
 
-impl StateMachine {
-  pub fn move_to_state(&mut self, new_state: GetVersionTestState) {
+  fn move_to_state(&mut self, new_state: GetVersionTestState) {
     let old_state = &self.state;
     if old_state != &new_state {
       debug!("Moving from {old_state:?} to {new_state:?}");

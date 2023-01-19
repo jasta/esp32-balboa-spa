@@ -5,7 +5,7 @@ use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
 use esp_idf_hal::peripherals::Peripherals;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use mock_mainboard_lib::transport::Transport;
 use esp_app::esp_uart_transport::EspUartTransport;
 
@@ -23,8 +23,16 @@ fn main() -> anyhow::Result<()> {
       peripherals.pins.gpio27,
       Some(peripherals.pins.gpio13))?;
 
+  // let (mut rx, _tx) = transport.split();
+  //
+  // let mut buf = [0u8; 14];
+  // loop {
+  //   let n = rx.read(&mut buf)?;
+  //   info!("Got {:02X?}", &buf[0..n]);
+  // }
+
   let panel = TopsidePanel::new(transport);
-  panel.run_read_test()?;
+  panel.run_loop()?;
   Ok(())
 }
 
@@ -55,24 +63,27 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
 
       let mut state = GetVersionTestState::NeedChannelWaitingCTS;
       let mut my_channel = None;
+      let mut system_model_number = None;
 
       match MessageType::try_from(&message) {
         Ok(mt) => {
           match (message.channel, mt) {
             (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
-              assert_eq!(state, GetVersionTestState::NeedChannelWaitingCTS);
-              self.writer.write(
-                &MessageType::ChannelAssignmentRequest {
-                  device_type: 0x0,
-                  client_hash: 0xcafe,
-                }.to_message(Channel::MulticastChannelAssignment)?)?;
-              state = GetVersionTestState::NeedChannelWaitingAssignment;
+              if state == GetVersionTestState::NeedChannelWaitingCTS {
+                self.writer.write(
+                  &MessageType::ChannelAssignmentRequest {
+                    device_type: 0x0,
+                    client_hash: 0xcafe,
+                  }.to_message(Channel::MulticastChannelAssignment)?)?;
+                state = GetVersionTestState::NeedChannelWaitingAssignment;
+              }
             }
             (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
-              assert_eq!(state, GetVersionTestState::NeedChannelWaitingAssignment);
-              my_channel = Some(channel);
-              self.writer.write(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
-              state = GetVersionTestState::NeedInfoWaitingCTS;
+              if state == GetVersionTestState::NeedChannelWaitingAssignment {
+                my_channel = Some(channel);
+                self.writer.write(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
+                state = GetVersionTestState::NeedInfoWaitingCTS;
+              }
             }
             (channel, MessageType::ClearToSend()) => {
               if my_channel == Some(channel) {
@@ -90,18 +101,34 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
               }
             }
             (channel, MessageType::InformationResponse(info)) => {
-              assert_eq!(state, GetVersionTestState::NeedInfoWaitingInfo);
-              assert_eq!(Some(channel), my_channel);
-              info!("Got system model number: {}", info.system_model_number);
+              if state == GetVersionTestState::NeedInfoWaitingInfo &&
+                  my_channel == Some(channel) {
+                info!("Got system model number: {}", info.system_model_number);
+                system_model_number = Some(info.system_model_number);
+              }
             }
             (channel, MessageType::StatusUpdate(status)) => {
-              // Ignore...
+              debug!("system_model_number={system_model_number:?}");
             }
             _ => warn!("Unhandled: {message:?}"),
           }
         }
         Err(e) => error!("{e:?}"),
       }
+    }
+  }
+}
+
+struct StateMachine {
+  state: GetVersionTestState,
+}
+
+impl StateMachine {
+  pub fn move_to_state(&mut self, new_state: GetVersionTestState) {
+    let old_state = &self.state;
+    if old_state != &new_state {
+      debug!("Moving from {old_state:?} to {new_state:?}");
+      self.state = new_state;
     }
   }
 }

@@ -1,4 +1,8 @@
+use std::fmt::Debug;
 use std::io::{Read, Write};
+use std::iter::{repeat, repeat_with};
+use std::marker::PhantomData;
+
 use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
@@ -8,7 +12,11 @@ use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
 use esp_idf_hal::peripherals::Peripherals;
 use log::{debug, error, info, warn};
 use mock_mainboard_lib::transport::Transport;
+use ws2812_esp32_rmt_driver::RGB8;
 use esp_app::esp_uart_transport::EspUartTransport;
+
+use esp_app::esp_ws2812_driver::EspWs2812Driver;
+use esp_app::status_led::{SmartLedsStatusLed, StatusLed};
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();
@@ -18,26 +26,25 @@ fn main() -> anyhow::Result<()> {
   let peripherals = Peripherals::take()
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;
 
+  let mut onboard_led = EspWs2812Driver::new(
+      peripherals.rmt.channel0,
+      peripherals.pins.gpio8)?;
+
+  let status_led = SmartLedsStatusLed::new(onboard_led.into_inner());
+
   let transport = EspUartTransport::new(
-      peripherals.uart2,
-      peripherals.pins.gpio14,
-      peripherals.pins.gpio27,
-      Some(peripherals.pins.gpio13))?;
+      peripherals.uart1,
+      peripherals.pins.gpio5,
+      peripherals.pins.gpio4,
+      Some(peripherals.pins.gpio3))?;
 
-  // let (mut rx, _tx) = transport.split();
-  //
-  // let mut buf = [0u8; 14];
-  // loop {
-  //   let n = rx.read(&mut buf)?;
-  //   info!("Got {:02X?}", &buf[0..n]);
-  // }
-
-  let panel = TopsidePanel::new(transport);
+  let panel = TopsidePanel::new(transport, status_led);
   panel.run_loop()?;
   Ok(())
 }
 
-struct TopsidePanel<R, W> {
+struct TopsidePanel<R, W, L> {
+  status_led: L,
   reader: FramedReader<R>,
   writer: FramedWriter<W>,
   state: GetVersionTestState,
@@ -47,13 +54,18 @@ struct TopsidePanel<R, W> {
 
 const MY_CLIENT_HASH: u16 = 0xcafe;
 
-impl<R: Read, W: Write> TopsidePanel<R, W> {
-
-  pub fn new(transport: impl Transport<R, W>) -> Self {
+impl<R, W, L> TopsidePanel<R, W, L>
+where
+    R: Read,
+    W: Write,
+    L: StatusLed,
+{
+  pub fn new(transport: impl Transport<R, W>, status_led: L) -> Self {
     let (raw_reader, raw_writer) = transport.split();
     let reader = FramedReader::new(raw_reader);
     let writer = FramedWriter::new(raw_writer);
     Self {
+      status_led,
       reader,
       writer,
       state: GetVersionTestState::NeedChannelWaitingCTS,
@@ -70,6 +82,7 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
   }
 
   pub fn run_loop(mut self) -> anyhow::Result<()> {
+    self.maybe_update_status_led();
     loop {
       let message = self.reader.next_message()?;
       info!("<= {message:?}");
@@ -138,7 +151,26 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     if old_state != &new_state {
       debug!("Moving from {old_state:?} to {new_state:?}");
       self.state = new_state;
+      self.maybe_update_status_led();
     }
+  }
+
+  fn maybe_update_status_led(&mut self) {
+    if let Err(e) = self.update_status_led() {
+      error!("Failed to update status LED: {e:?}");
+    }
+  }
+
+  fn update_status_led(&mut self) -> Result<(), L::Error> {
+    let color_hex: u32 = match self.state {
+      GetVersionTestState::NeedChannelWaitingCTS => 0x000000,
+      GetVersionTestState::NeedChannelWaitingAssignment => 0x0000ff,
+      GetVersionTestState::NeedInfoWaitingCTS => 0xffa500,
+      GetVersionTestState::NeedInfoWaitingInfo => 0xffa500,
+      GetVersionTestState::GotInfoIdle => 0x00ff00,
+    };
+    let c = color_hex.to_be_bytes();
+    self.status_led.set_color(RGB8::new(c[1], c[2], c[3]))
   }
 }
 
@@ -148,5 +180,5 @@ enum GetVersionTestState {
   NeedChannelWaitingAssignment,
   NeedInfoWaitingCTS,
   NeedInfoWaitingInfo,
+  GotInfoIdle,
 }
-

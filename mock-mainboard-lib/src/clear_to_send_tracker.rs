@@ -74,24 +74,26 @@ impl ClearToSendTracker {
     match &self.authorized_sender {
       Some(authorized) => {
         if authorized.clear_on_next_send {
-          Ok(SendMessageFactory {})
+          Ok(SendMessageFactory)
         } else if authorized.is_expired() {
           if let Channel::Client(_) = authorized.channel {
             Err(TrySendMessageError::ClientError(authorized.channel))
           } else {
-            Ok(SendMessageFactory {})
+            Ok(SendMessageFactory)
           }
         } else {
           Err(TrySendMessageError::WaitingToClear)
         }
       }
-      None => Ok(SendMessageFactory {}),
+      None => Ok(SendMessageFactory),
     }
   }
 
   pub fn on_send(&mut self, sm: &SendMessage) {
     if let Some(authorized) = &self.authorized_sender {
-      warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
+      if !authorized.clear_on_next_send {
+        warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
+      }
     }
 
     let authorized_sender = sm.expect_reply_on.map(|channel| {
@@ -110,8 +112,7 @@ struct AuthorizedSender {
 }
 
 #[derive(Debug)]
-pub(crate) struct SendMessageFactory {
-}
+pub(crate) struct SendMessageFactory;
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum TrySendMessageError {

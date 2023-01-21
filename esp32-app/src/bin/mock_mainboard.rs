@@ -11,7 +11,9 @@ use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
 use log::{info, warn};
 use mock_mainboard_lib::main_board::MainBoard;
+use esp_app::esp32c3_devkit_m;
 use esp_app::esp_uart_transport::EspUartTransport;
+use esp_app::status_led::SmartLedsStatusLed;
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();

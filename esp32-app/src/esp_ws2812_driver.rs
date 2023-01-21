@@ -1,8 +1,7 @@
 use esp_idf_hal::gpio::OutputPin;
 use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::rmt::RmtChannel;
-use smart_leds::SmartLedsWrite;
-use ws2812_esp32_rmt_driver::{RGB8, Ws2812Esp32Rmt, Ws2812Esp32RmtDriverError};
+use ws2812_esp32_rmt_driver::{Ws2812Esp32Rmt, Ws2812Esp32RmtDriverError};
 
 pub struct EspWs2812Driver {
   inner: Ws2812Esp32Rmt,

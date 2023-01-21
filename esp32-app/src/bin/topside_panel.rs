@@ -13,6 +13,7 @@ use esp_idf_hal::peripherals::Peripherals;
 use log::{debug, error, info, warn};
 use mock_mainboard_lib::transport::Transport;
 use ws2812_esp32_rmt_driver::RGB8;
+use esp_app::esp32c3_devkit_m;
 use esp_app::esp_uart_transport::EspUartTransport;
 
 use esp_app::esp_ws2812_driver::EspWs2812Driver;
@@ -26,10 +27,7 @@ fn main() -> anyhow::Result<()> {
   let peripherals = Peripherals::take()
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;
 
-  let mut onboard_led = EspWs2812Driver::new(
-      peripherals.rmt.channel0,
-      peripherals.pins.gpio8)?;
-
+  let onboard_led = esp32c3_devkit_m::onboard_led!(peripherals)?;
   let status_led = SmartLedsStatusLed::new(onboard_led.into_inner());
 
   let transport = EspUartTransport::new(
@@ -37,6 +35,13 @@ fn main() -> anyhow::Result<()> {
       peripherals.pins.gpio5,
       peripherals.pins.gpio4,
       Some(peripherals.pins.gpio3))?;
+
+  // let (mut rx, tx) = transport.split();
+  // let mut buf = [0u8; 1];
+  // loop {
+  //   rx.read_exact(&mut buf)?;
+  //   info!("Got {buf:02X?}");
+  // }
 
   let panel = TopsidePanel::new(transport, status_led);
   panel.run_loop()?;
@@ -163,7 +168,7 @@ where
 
   fn update_status_led(&mut self) -> Result<(), L::Error> {
     let color_hex: u32 = match self.state {
-      GetVersionTestState::NeedChannelWaitingCTS => 0x000000,
+      GetVersionTestState::NeedChannelWaitingCTS => 0x010000,
       GetVersionTestState::NeedChannelWaitingAssignment => 0x0000ff,
       GetVersionTestState::NeedInfoWaitingCTS => 0xffa500,
       GetVersionTestState::NeedInfoWaitingInfo => 0xffa500,

@@ -96,7 +96,9 @@ where
         Ok(mt) => {
           match (message.channel, mt) {
             (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
-              if self.state == GetVersionTestState::NeedChannelWaitingCTS {
+              if matches!(self.state,
+                  GetVersionTestState::NeedChannelWaitingCTS |
+                  GetVersionTestState::NeedChannelWaitingAssignment) {
                 self.send_message(
                   &MessageType::ChannelAssignmentRequest {
                     device_type: 0x0,
@@ -133,6 +135,7 @@ where
                   self.my_channel == Some(channel) {
                 info!("Got system model number: {}", info.system_model_number);
                 self.model_number = Some(info.system_model_number);
+                self.move_to_state(GetVersionTestState::GotInfoIdle);
               }
             }
             (channel, MessageType::StatusUpdate(status)) => {
@@ -169,10 +172,10 @@ where
   fn update_status_led(&mut self) -> Result<(), L::Error> {
     let color_hex: u32 = match self.state {
       GetVersionTestState::NeedChannelWaitingCTS => 0x010000,
-      GetVersionTestState::NeedChannelWaitingAssignment => 0x0000ff,
-      GetVersionTestState::NeedInfoWaitingCTS => 0xffa500,
-      GetVersionTestState::NeedInfoWaitingInfo => 0xffa500,
-      GetVersionTestState::GotInfoIdle => 0x00ff00,
+      GetVersionTestState::NeedChannelWaitingAssignment => 0x000001,
+      GetVersionTestState::NeedInfoWaitingCTS => 0x020100,
+      GetVersionTestState::NeedInfoWaitingInfo => 0x020100,
+      GetVersionTestState::GotInfoIdle => 0x000100,
     };
     let c = color_hex.to_be_bytes();
     self.status_led.set_color(RGB8::new(c[1], c[2], c[3]))

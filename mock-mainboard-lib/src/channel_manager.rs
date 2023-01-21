@@ -125,6 +125,7 @@ impl ChannelManager {
       Err(TrySendMessageError::ClientError(channel)) => {
         let cts_action = self.channel_tracker.record_cts_failure(channel);
         info!("CTS window expired on channel={channel:?}: {cts_action:?}");
+        let policy = self.resolve_policy();
         match cts_action {
           CtsFailureAction::ChannelNotFound => {
             Err(HandlingError::FatalError(
@@ -133,7 +134,12 @@ impl ChannelManager {
           CtsFailureAction::ChannelRemoved => {
             Ok(Some(self.clear_to_send_tracker.force_send_message()))
           }
-          CtsFailureAction::Tolerated => Ok(None),
+          CtsFailureAction::Tolerated => {
+            match policy {
+              ResolvedCtsPolicy::Always => Ok(None),
+              ResolvedCtsPolicy::Never => Ok(Some(SendMessageFactory)),
+            }
+          },
         }
       }
     }

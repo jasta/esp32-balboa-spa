@@ -10,6 +10,7 @@ use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspEventLoop;
 use esp_idf_sys as _;
 use log::{info, warn};
+use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use esp_app::esp32c3_devkit_m;
 use esp_app::esp_uart_transport::EspUartTransport;
@@ -33,7 +34,8 @@ fn main() -> anyhow::Result<()> {
   info!("UART transport initialized");
 
   let logic = MainBoard::new(transport)
-      .set_init_delay(Duration::from_secs(10));
+      .set_init_delay(Duration::from_secs(10))
+      .set_clear_to_send_policy(CtsEnforcementPolicy::Never, Duration::from_millis(20));
   let (shutdown_handle, runner) = logic.into_runner();
 
   info!("Main board setup complete, starting...");

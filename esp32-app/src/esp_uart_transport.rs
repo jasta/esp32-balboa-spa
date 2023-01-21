@@ -3,6 +3,7 @@ use std::io;
 use std::io::{BufRead, ErrorKind};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use esp_idf_hal::delay::{BLOCK, NON_BLOCK};
 use esp_idf_hal::gpio::{AnyOutputPin, Gpio3, InputPin, Output, OutputPin, PinDriver, Pull};
@@ -23,12 +24,14 @@ pub struct EspUartTransport {
 }
 
 pub struct EspUartRx {
-  rx_driver: UartRxDriver<'static>
+  rx_driver: UartRxDriver<'static>,
+  tx_dropped: Arc<AtomicBool>,
 }
 
 pub struct EspUartTx {
   tx_driver: UartTxDriver<'static>,
   enable_driver: Option<PinDriver<'static, AnyOutputPin, Output>>,
+  tx_dropped: Arc<AtomicBool>,
   writing: bool,
 }
 
@@ -66,10 +69,17 @@ impl EspUartTransport {
 
 impl Transport<EspUartRx, EspUartTx> for EspUartTransport {
   fn split(self) -> (EspUartRx, EspUartTx) {
+    let tx_dropped_rx = Arc::new(AtomicBool::new(false));
+    let tx_dropped_tx = tx_dropped_rx.clone();
     let (tx, rx) = self.uart_driver.into_split();
     (
-      EspUartRx { rx_driver: rx },
-      EspUartTx { tx_driver: tx, enable_driver: self.enable_driver, writing: false }
+      EspUartRx { rx_driver: rx, tx_dropped: tx_dropped_rx },
+      EspUartTx {
+        tx_driver: tx,
+        tx_dropped: tx_dropped_tx,
+        enable_driver: self.enable_driver,
+        writing: false
+      }
     )
   }
 }
@@ -86,8 +96,10 @@ impl std::io::Read for EspUartRx {
     // the amount of data in the buffer _or_ just a single byte then drain the full buffer after.
     let available = self.rx_driver.count().map_err(err_to_std)?;
     if available == 0 {
-      let n = block!(rw_to_nb_std(self.rx_driver.read(&mut buf[0..1], BLOCK)))?;
-      assert_eq!(n, 1);
+      let n = self.blocking_read(&mut buf[0..1])?;
+      if n == 0 {
+        return Ok(0);
+      }
 
       // Now let's try again with the RX buffer.
       self.read_with_rx_buffer(&mut buf[1..])
@@ -114,6 +126,25 @@ impl EspUartRx {
       match self.rx_driver.read(&mut buf[0..max_len], NON_BLOCK)? {
         0 => panic!("Concurrent UART read detected!"),
         n => Ok(n),
+      }
+    }
+  }
+
+  fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
+    // Don't use BLOCK (TickType_t::MAX) because we need to check periodically for
+    // whether our tx side has been dropped so we can exit out of the read with an error and
+    // thus permit the service to shutdown gracefully.  A bit of a hack but it's easier to
+    // fix at this layer than in the readers as they are using real threads instead of async Rust.
+    let num_ticks = 100;
+    loop {
+      if self.tx_dropped.load(Ordering::SeqCst) {
+        // Short read is enough to do the trick...
+        return Ok(0);
+      }
+      match rw_to_nb_std(self.rx_driver.read(buf, num_ticks)) {
+        Err(nb::Error::WouldBlock) => {},
+        Ok(n) => return Ok(n),
+        Err(nb::Error::Other(e)) => return Err(e),
       }
     }
   }
@@ -158,4 +189,10 @@ fn flush_to_nb_std(result: Result<(), EspError>) -> nb::Result<(), std::io::Erro
 
 fn err_to_std(e: EspError) -> std::io::Error {
   std::io::Error::new(ErrorKind::Other, e)
+}
+
+impl Drop for EspUartTx {
+  fn drop(&mut self) {
+    self.tx_dropped.store(true, Ordering::SeqCst);
+  }
 }

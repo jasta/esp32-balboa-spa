@@ -37,7 +37,9 @@ fn main() -> anyhow::Result<()> {
   let (shutdown_handle, runner) = logic.into_runner();
 
   info!("Main board setup complete, starting...");
-  runner.run_loop()?;
+  if let Err(e) = runner.run_loop() {
+    panic!("Run loop exited: {e:?}");
+  }
   warn!("Exiting seemingly by request, though not sure how?");
 
   drop(shutdown_handle);

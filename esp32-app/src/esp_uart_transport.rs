@@ -103,7 +103,7 @@ impl EspUartRx {
   /// Perform a UART read but _only_ take bytes from the RX buffer (i.e. do not wait
   /// for more data to become available).
   fn read_with_rx_buffer(&mut self, buf: &mut [u8]) -> Result<usize, EspError> {
-    if buf.len() == 0 {
+    if buf.is_empty() {
       return Ok(0)
     }
     let available = self.rx_driver.count()?;

@@ -70,6 +70,11 @@ impl ClearToSendTracker {
     }
   }
 
+  pub fn force_send_message(&mut self) -> SendMessageFactory {
+    self.set_authorized_sender(None);
+    self.start_send_message().expect("force_send_message failed!?")
+  }
+
   pub fn start_send_message(&self) -> Result<SendMessageFactory, TrySendMessageError> {
     match &self.authorized_sender {
       Some(authorized) => {
@@ -90,15 +95,18 @@ impl ClearToSendTracker {
   }
 
   pub fn on_send(&mut self, sm: &SendMessage) {
+    let authorized_sender = sm.expect_reply_on.map(|channel| {
+      AuthorizedSender::from_now(channel, self.allowed_delay, sm.clear_on_next_send)
+    });
+    self.set_authorized_sender(authorized_sender);
+  }
+
+  fn set_authorized_sender(&mut self, authorized_sender: Option<AuthorizedSender>) {
     if let Some(authorized) = &self.authorized_sender {
       if !authorized.clear_on_next_send {
         warn!("Existing authorized sender on channel={:?} dropped implicitly!", authorized.channel);
       }
     }
-
-    let authorized_sender = sm.expect_reply_on.map(|channel| {
-      AuthorizedSender::from_now(channel, self.allowed_delay, sm.clear_on_next_send)
-    });
     self.authorized_sender = authorized_sender;
   }
 }

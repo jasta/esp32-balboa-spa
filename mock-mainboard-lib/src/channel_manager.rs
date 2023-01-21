@@ -131,11 +131,7 @@ impl ChannelManager {
               format!("{channel:?} not found but it is authorized???")))
           }
           CtsFailureAction::ChannelRemoved => {
-            // Try again, should work now...
-            match self.clear_to_send_tracker.start_send_message() {
-              Ok(smf) => Ok(Some(smf)),
-              Err(e) => Err(HandlingError::FatalError(format!("{e:?}"))),
-            }
+            Ok(Some(self.clear_to_send_tracker.force_send_message()))
           }
           CtsFailureAction::Tolerated => Ok(None),
         }

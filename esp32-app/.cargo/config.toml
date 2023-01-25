@@ -38,3 +38,5 @@ build-std = ["std", "panic_abort"]
 ESP_IDF_VERSION = "release/v4.4"
 # Builds against ESP-IDF master (mainline)
 #ESP_IDF_VERSION = "master"
+
+DEP_LV_CONFIG_PATH = { value = ".", relative = true }

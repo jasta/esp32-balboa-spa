@@ -29,6 +29,12 @@ nb = "1.0.0"
 ws2812-esp32-rmt-driver = "0.5.0"
 smart-leds = "0.3.0"
 num-traits = "0.2.15"
+mipidsi = "0.6.0"
+display-interface-spi = "0.4.1"
+embedded-graphics = "0.7.1"
+lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 
 [build-dependencies]
 embuild = "0.31.0"

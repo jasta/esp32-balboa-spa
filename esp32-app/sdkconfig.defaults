@@ -1,5 +1,5 @@
-CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
-CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_INFO=y
 
 # Rust often needs a bit of an extra main task stack size compared to C (the default is 3K)
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10000

@@ -12,7 +12,7 @@ use esp_idf_hal::prelude::*;
 use esp_idf_hal::uart::{Uart, UartDriver, UartRxDriver, UartTxDriver};
 use esp_idf_hal::{gpio, uart};
 use esp_idf_hal::uart::config::{DataBits, StopBits};
-use esp_idf_sys::{ESP_ERR_TIMEOUT, EspError};
+use esp_idf_sys::{esp, ESP_ERR_TIMEOUT, EspError, uart_mode_t, uart_mode_t_UART_MODE_RS485_APP_CTRL, uart_mode_t_UART_MODE_RS485_COLLISION_DETECT, uart_mode_t_UART_MODE_RS485_HALF_DUPLEX, uart_port_t, uart_set_mode};
 use log::debug;
 use nb::block;
 
@@ -39,11 +39,12 @@ impl EspUartTransport {
   /// Create a new transport adapter using the ESP's hardware UART with an optional pin
   /// dedicated to setting the DE and RE pins HIGH or LOW for transmit and receive respectively
   /// (which is only required for some RS485 modules)
-  pub fn new(
-      uart: impl Peripheral<P = impl Uart> + 'static,
+  pub fn new<UART: Uart>(
+      uart: impl Peripheral<P = UART> + 'static,
       tx: impl Peripheral<P = impl OutputPin> + 'static,
       rx: impl Peripheral<P = impl InputPin> + 'static,
       enable_pin: Option<impl Peripheral<P = impl OutputPin> + 'static>,
+      rs485_config: Option<RS485Config>,
   ) -> Result<Self, EspError> {
     let uart_config = uart::config::Config::new()
         .baudrate(Hertz(115_200))
@@ -60,15 +61,41 @@ impl EspUartTransport {
       },
       None => None,
     };
+
+    let uart_driver = UartDriver::new(uart, tx, rx, cts, rts, &uart_config)?;
+    if let Some(rs485_config) = rs485_config {
+      let _ = esp! { unsafe { uart_set_mode(UART::port(), rs485_config.mode.into()) } }?;
+    }
     Ok(EspUartTransport {
-      uart_driver: UartDriver::new(uart, tx, rx, cts, rts, &uart_config)?,
+      uart_driver,
       enable_driver,
     })
   }
 }
 
+pub struct RS485Config {
+  pub mode: RS485Mode,
+}
+
+pub enum RS485Mode {
+  HalfDuplex,
+  CollisionDetect,
+  AppCtrl,
+}
+
+impl From<RS485Mode> for uart_mode_t {
+  fn from(value: RS485Mode) -> Self {
+    match value {
+      RS485Mode::HalfDuplex => uart_mode_t_UART_MODE_RS485_HALF_DUPLEX,
+      RS485Mode::CollisionDetect => uart_mode_t_UART_MODE_RS485_COLLISION_DETECT,
+      RS485Mode::AppCtrl => uart_mode_t_UART_MODE_RS485_APP_CTRL,
+    }
+  }
+}
+
 impl Transport<EspUartRx, EspUartTx> for EspUartTransport {
-  fn split(self) -> (EspUartRx, EspUartTx) {
+  fn split(self) -> (EspUartRx, EspUartTx)
+  {
     let tx_dropped_rx = Arc::new(AtomicBool::new(false));
     let tx_dropped_tx = tx_dropped_rx.clone();
     let (tx, rx) = self.uart_driver.into_split();

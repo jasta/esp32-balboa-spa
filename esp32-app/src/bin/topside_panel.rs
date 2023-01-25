@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::iter::{repeat, repeat_with};
-use std::marker::PhantomData;
 
 use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
@@ -34,7 +32,8 @@ fn main() -> anyhow::Result<()> {
       peripherals.uart1,
       peripherals.pins.gpio5,
       peripherals.pins.gpio4,
-      Some(peripherals.pins.gpio3))?;
+      Some(peripherals.pins.gpio3),
+      None)?;
 
   // let (mut rx, tx) = transport.split();
   // let mut buf = [0u8; 1];

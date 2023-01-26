@@ -1,24 +1,30 @@
+use std::borrow::Borrow;
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU16, AtomicU32};
+use std::sync::mpsc;
+use std::sync::mpsc::channel;
 use std::thread;
 use std::time::{Duration, Instant};
+
 use anyhow::anyhow;
 use display_interface_spi::{SPIInterface, SPIInterfaceNoCS};
 use embedded_graphics::pixelcolor::{BinaryColor, Rgb565, Rgb666, Rgb888};
 use embedded_graphics::pixelcolor::raw::{RawU16, RawU18};
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle, Triangle};
-use embedded_hal::spi::{MODE_0, MODE_3};
+use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::spi::MODE_0;
 use esp_idf_hal::delay::Ets;
-use esp_idf_hal::gpio::{Gpio0, PinDriver};
+use esp_idf_hal::gpio::{AnyOutputPin, Gpio0, Output, PinDriver, Pull};
 use esp_idf_hal::prelude::*;
 use esp_idf_hal::spi;
-use esp_idf_hal::spi::{Dma, SpiDeviceDriver};
-use esp_idf_hal::spi::config::V02Type;
-use log::{debug, info};
-use lvgl::style::{Opacity, Style};
+use esp_idf_hal::spi::{Dma, SpiDeviceDriver, SpiDriver, SpiSharedDeviceDriver};
+use esp_idf_hal::spi::config::{Duplex, V02Type};
+use log::{debug, info, warn};
 use lvgl::{Align, Color, LvResult, Part, State, UI, Widget};
+use lvgl::style::{Opacity, Style};
 use lvgl::widgets::Gauge;
-use mipidsi::{Builder, Orientation};
+use mipidsi::{Builder, ColorOrder, Orientation};
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();
@@ -31,13 +37,19 @@ fn main() -> anyhow::Result<()> {
   let spi = peripherals.spi2;
 
   // ESP32-C3
-  let rst = PinDriver::output(peripherals.pins.gpio3)?;
+  let mut rst = PinDriver::output(peripherals.pins.gpio3)?;
   let dc_rs = PinDriver::output(peripherals.pins.gpio4)?;
   let mut backlight = PinDriver::output(peripherals.pins.gpio5)?;
   let sclk = peripherals.pins.gpio6;
   let sdo = peripherals.pins.gpio7;
   let sdi = peripherals.pins.gpio8;
   let mut cs = PinDriver::output(peripherals.pins.gpio10)?;
+
+  info!("Setting CS low");
+  cs.set_low()?;
+
+  info!("Setting RST high");
+  rst.set_high()?;
 
   // ESP32
   // let mut cs = PinDriver::output(peripherals.pins.gpio15)?;
@@ -48,32 +60,37 @@ fn main() -> anyhow::Result<()> {
   // let mut backlight = PinDriver::output(peripherals.pins.gpio25)?;
   // let sdo = peripherals.pins.gpio23;
 
-  info!("Disabling Chip Select...");
-  cs.set_high()?;
-
   info!("Setting backlight low...");
   backlight.set_low()?;
 
   let mut delay = Ets;
 
   let config = spi::config::Config::new()
-      .baudrate(25.MHz().into())
-      .data_mode(V02Type(MODE_0).into());
+      .baudrate(40.MHz().into())
+      .data_mode(V02Type(MODE_0).into())
+      .write_only(true);
 
   info!("Initializing SPI device...");
-  let device =
-      SpiDeviceDriver::new_single(spi, sclk, sdo, Option::<Gpio0>::None, Dma::Disabled, Option::<Gpio0>::None, &config)?;
+  let driver =
+      SpiDriver::new(spi, sclk, sdo, Some(sdi), Dma::Disabled)?;
+  let tft_device =
+      SpiDeviceDriver::new(&driver, Option::<Gpio0>::None, &config)?;
+  // let sdcard_device =
+  //     SpiDeviceDriver::new(&driver, Some(cs2), &Default::default())?;
   // display interface abstraction from SPI and DC
-  let di = SPIInterface::new(device, dc_rs, cs);
+  let di = SPIInterfaceNoCS::new(tft_device, dc_rs);
 
   info!("Initializing driver...");
-  // create driver
   // let mut display = Builder::ili9486_rgb565(di)
+  //     .with_orientation(Orientation::Landscape(false))
+  //     .with_color_order(ColorOrder::Bgr)
   //     .init(&mut delay, Some(rst))
   //     .unwrap();
+  let rst_none = Option::<PinDriver<Gpio0, Output>>::None;
   let mut display = Builder::ili9341_rgb565(di)
       .with_orientation(Orientation::Landscape(false))
-      .init(&mut delay, Some(rst))
+      .with_color_order(ColorOrder::Bgr)
+      .init(&mut delay, rst_none)
       .unwrap();
 
   info!("Turning on backlight...");
@@ -81,16 +98,6 @@ fn main() -> anyhow::Result<()> {
 
   info!("Clearing screen...");
   display.clear(Rgb565::new(0, 255, 0)).unwrap();
-
-  info!("Drawing rectangle...");
-  let fill = PrimitiveStyle::with_fill(Rgb565::new(255, 0, 0));
-  Rectangle::new(Point::new(52, 10), Size::new(16, 16))
-      .into_styled(fill)
-      .draw(&mut display)
-      .unwrap();
-
-  info!("Sleeping 4s...");
-  thread::sleep(Duration::from_secs(4));
 
   do_stuff(display).unwrap();
   Ok(())
@@ -196,18 +203,43 @@ fn do_stuff(display: impl DrawTarget<Color = impl PixelColor + From<Color>>) -> 
   let mut gauge = Gauge::new(&mut screen)?;
   gauge.add_style(Part::Main, gauge_style)?;
   gauge.set_align(&mut screen, Align::Center, 0, 0)?;
-  gauge.set_value(0, 50)?;
 
   let mut i = 0;
-  let mut loop_started = Instant::now();
+  let mut i_step = 1;
+  gauge.set_value(0, i)?;
+
+  let mut last_i_change = Instant::now();
+  let mut last_tick = Instant::now();
+  // 30fps
+  let target_delay = Duration::from_millis(33);
   loop {
-    gauge.set_value(0, i)?;
+    if last_tick.duration_since(last_i_change) > Duration::from_millis(250) {
+      if i >= 100 {
+        i_step = -1;
+      } else if i <= 0 {
+        i_step = 1;
+      }
+      let new_i = i + i_step;
+      gauge.set_value(0, new_i)?;
+      i = new_i;
+      last_i_change = last_tick;
+    }
 
     ui.task_handler();
 
-    ui.tick_inc(loop_started.elapsed());
-    loop_started = Instant::now();
+    let now = Instant::now();
+    let elapsed = now - last_tick;
+    let next_delay = target_delay.checked_sub(elapsed);
+    if let Some(next_delay) = next_delay {
+      if next_delay < Duration::from_millis(2) {
+        warn!("Less than 2ms of margin between next frame!");
+      }
+      Ets::delay_ms(next_delay.as_millis() as u32);
+    } else {
+      warn!("Render pass took more than {:?}!", target_delay);
+    }
 
-    Ets::delay_ms(1);
+    ui.tick_inc(elapsed);
+    last_tick = now;
   }
 }

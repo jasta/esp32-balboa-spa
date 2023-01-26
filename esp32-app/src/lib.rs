@@ -3,3 +3,4 @@ pub mod wifi;
 pub mod esp_ws2812_driver;
 pub mod status_led;
 pub mod esp32c3_devkit_m;
+pub mod display_factory;

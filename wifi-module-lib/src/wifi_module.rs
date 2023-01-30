@@ -1,0 +1,6 @@
+struct WifiModule {
+}
+
+impl WifiModule {
+
+}

@@ -11,6 +11,7 @@ timer = { git = "https://github.com/Yoric/timer.rs" }
 chrono = { version = "0.4.23", default-features = false, features = ["std"] }
 num-traits = "0.2.15"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
+common-lib = { path = "../common-lib" }
 
 [dev-dependencies]
 env_logger = "0.10.0"

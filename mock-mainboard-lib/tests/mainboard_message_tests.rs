@@ -9,7 +9,7 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
-use mock_mainboard_lib::transport::StdTransport;
+use common_lib::transport::StdTransport;
 
 #[test]
 fn mainboard_get_version() -> anyhow::Result<()> {

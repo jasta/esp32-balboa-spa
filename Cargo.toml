@@ -1,8 +1,11 @@
 [workspace]
 members = [
   "balboa-spa-messages",
-  "test-esp8266_spa-app",
+  "common-lib",
   "mock-mainboard-lib",
+  "test-esp8266_spa-app",
+  "topside-panel-lib",
+  "wifi-module-lib",
 ]
 exclude = [
   # Note that we exclude the ESP app as esp-idf-svc/hal have a lot of funky

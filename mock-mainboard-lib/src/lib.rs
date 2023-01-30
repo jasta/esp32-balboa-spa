@@ -2,7 +2,6 @@
 //! for software testing automation and validation.
 
 pub mod main_board;
-pub mod transport;
 pub mod mock_spa;
 mod message_logger;
 mod channel_tracker;

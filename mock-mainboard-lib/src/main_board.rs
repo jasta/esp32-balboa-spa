@@ -25,7 +25,7 @@ use crate::clear_to_send_tracker::{ClearToSendTracker, NoCtsReason, SendMessage,
 use crate::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::timer_tracker::{TickAction, TimerTracker};
-use crate::transport::Transport;
+use common_lib::transport::Transport;
 
 pub struct MainBoard<R, W> {
   framed_reader: FramedReader<R>,

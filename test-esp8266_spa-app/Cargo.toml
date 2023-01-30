@@ -5,6 +5,7 @@ edition = "2021"
 
 [dev-dependencies]
 mock-mainboard-lib = { path = "../mock-mainboard-lib" }
+common-lib = { path = "../common-lib" }
 anyhow = "1"
 thiserror = "1"
 env_logger = "0.10.0"

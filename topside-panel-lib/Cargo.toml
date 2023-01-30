@@ -1,0 +1,19 @@
+[package]
+name = "topside-panel-lib"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4.17"
+anyhow = "1"
+thiserror = "1"
+balboa-spa-messages = { path = "../balboa-spa-messages" }
+common-lib = { path = "../common-lib" }
+embedded-graphics = "0.7.1"
+embedded-graphics-simulator = "0.4.0"
+lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+
+[dev-dependencies]
+env_logger = "0.10.0"

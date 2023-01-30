@@ -7,7 +7,7 @@ use std::time::Duration;
 use log::LevelFilter;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
-use mock_mainboard_lib::transport::StdTransport;
+use common_lib::transport::StdTransport;
 
 // Note that this test is _really_ about mock_mainboard_lib testing, but we're putting it here
 // because assert_cmd assumes that we're testing a binary from the current crate.

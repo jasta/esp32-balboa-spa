@@ -179,7 +179,14 @@ impl <R: Read, W> SharedState<R, W> {
     }
 
     let raw_result = self.raw_reader.read(user_buf);
-    self.handle_result(my_index, user_buf, raw_result)
+    match raw_result {
+      Ok(0) => {
+        let e = RxTxError::UnexpectedEof;
+        self.got_error = Some(e.clone());
+        Err(e.into())
+      }
+      _ => self.handle_result(my_index, user_buf, raw_result),
+    }
   }
 }
 
@@ -187,6 +194,10 @@ impl <R, W: Write> SharedState<R, W> {
   pub fn do_raw_write(&mut self, my_index: usize, user_buf: &[u8]) -> io::Result<usize> {
     if let Some(ref e) = self.got_error {
       return Err(e.into());
+    }
+
+    if user_buf.is_empty() {
+      return Ok(0);
     }
 
     let raw_result = self.raw_writer.write(user_buf);
@@ -197,6 +208,7 @@ impl <R, W: Write> SharedState<R, W> {
 impl <R, W> SharedState<R, W> {
   fn handle_result(&mut self, my_index: usize, user_buf: &[u8], result: io::Result<usize>) -> io::Result<usize> {
     match result {
+      Ok(0) => Ok(0),
       Ok(n) => {
         for (&index, other_buf) in self.all_buffers.iter_mut() {
           if index != my_index {
@@ -233,11 +245,16 @@ impl From<&RxTxError> for io::Error {
   }
 }
 
+impl From<RxTxError> for io::Error {
+  fn from(value: RxTxError) -> Self {
+    (&value).into()
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
   use std::io::{BufRead, BufReader, Write};
-  use byteorder::{ReadBytesExt, WriteBytesExt};
   use log::{debug, LevelFilter};
   use crate::transport::{StdTransport, Transport};
   use ntest::timeout;
@@ -247,77 +264,27 @@ mod tests {
   fn test_happy_path() -> anyhow::Result<()> {
     let _ = env_logger::builder().filter_level(LevelFilter::Trace).is_test(true).try_init();
 
-    let ((client_in, mut server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
+    let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
     let transport = StdTransport::new(client_in, client_out);
 
     let multiplex = BusTransport::new(transport, 32);
     let client1 = multiplex.clone();
     let client0 = multiplex;
 
-    let (rx0, mut tx0) = client0.split();
-    let (rx1, mut tx1) = client1.split();
+    let mut harness = BusTestHarness::new();
+    let s = harness.add_splits(server_in, server_out);
+    let c0 = harness.add_transport(client0);
+    let c1 = harness.add_transport(client1);
 
-    let mut server_lines = BufReader::new(server_in).lines();
-    let mut client0_lines = BufReader::new(rx0).lines();
-    let mut client1_lines = BufReader::new(rx1).lines();
-    roundtrip_both(&mut server_out, &mut client0_lines, &mut client1_lines, "hello, clients!")?;
-    roundtrip_both(&mut tx0, &mut server_lines, &mut client1_lines, "hello, client1+server!")?;
-    roundtrip_both(&mut tx1, &mut server_lines, &mut client0_lines, "hello, client0+server!")?;
+    harness.send_from(s, "hello, clients!")?;
+    harness.send_from(c0, "hello client1+server!")?;
+    harness.send_from(c1, "hello client0+server!")?;
     Ok(())
-  }
-
-  fn roundtrip_both<'a, R1, R2, W>(out: &mut W, in0: &'a mut R1, in1: &'a mut R2, data: &str) -> io::Result<()>
-    where
-        R1: Iterator<Item=io::Result<String>>,
-        R2: Iterator<Item=io::Result<String>>,
-        W: Write + Send
-  {
-    struct HomogenousIter<'a, I> {
-      inner: Box<dyn Iterator<Item=I> + 'a>,
-    }
-    impl <'a, I> Iterator for HomogenousIter<'a, I> {
-      type Item = I;
-
-      fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-      }
-    }
-
-    let inputs = [
-      HomogenousIter { inner: Box::new(in0) },
-      HomogenousIter { inner: Box::new(in1) },
-    ];
-    roundtrip_all(out, inputs.into_iter(), data)
-  }
-
-  fn roundtrip_all<R, W>(out: &mut W, inputs: impl Iterator<Item=R>, data: &str) -> io::Result<()>
-  where
-      R: Iterator<Item=io::Result<String>>,
-      W: Write + Send
-  {
-    // Need to use another thread because PipeReader/Writer use a bounded channel of size 0 so
-    // the write will block forever.
-    crossbeam::thread::scope(|s| {
-      let out_handle = s.spawn(|_| {
-        let data_with_cr = data.to_owned() + "\n";
-        out.write_all(data_with_cr.as_bytes())?;
-        out.flush()?;
-        debug!("Flushed to out: {data}");
-        Ok(())
-      });
-
-      for (index, mut input) in inputs.enumerate() {
-        assert_eq!(input.next().unwrap()?, data, "in{index} mismatch");
-        debug!("Read successfully from in{index}");
-      }
-
-      out_handle.join().unwrap()
-    }).unwrap()
   }
 
   #[test]
   fn test_drop_before_split() -> anyhow::Result<()> {
-    let ((client_in, mut server_out), (_server_in, client_out)) = (pipe::pipe(), pipe::pipe());
+    let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
     let transport = StdTransport::new(client_in, client_out);
 
     let multiplex = BusTransport::new(transport, 32);
@@ -327,27 +294,127 @@ mod tests {
     let (rx, tx) = client.split();
 
     assert_eq!(rx.inner.state.lock().unwrap().all_buffers.len(), 1);
-    let mut rx_lines = BufReader::new(rx).lines();
-    roundtrip_all(&mut server_out, [&mut rx_lines].into_iter(), "meh")?;
-    drop(tx);
+    let mut harness = BusTestHarness::new();
+    let s = harness.add_splits(server_in, server_out);
+    let _c = harness.add_splits(rx, tx);
+    harness.send_from(s, "meh")?;
     Ok(())
   }
 
   #[test]
   fn test_drop_after_split() -> anyhow::Result<()> {
-    let ((client_in, mut server_out), (_server_in, client_out)) = (pipe::pipe(), pipe::pipe());
+    let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
     let transport = StdTransport::new(client_in, client_out);
 
     let multiplex = BusTransport::new(transport, 32);
     let client = multiplex.clone();
 
     let (_, _) = multiplex.split();
-    let (mut rx, tx) = client.split();
+    let (rx, tx) = client.split();
 
     assert_eq!(rx.inner.state.lock().unwrap().all_buffers.len(), 1);
-    let mut rx_lines = BufReader::new(rx).lines();
-    roundtrip_all(&mut server_out, [&mut rx_lines].into_iter(), "meh")?;
-    drop(tx);
+    let mut harness = BusTestHarness::new();
+    let s = harness.add_splits(server_in, server_out);
+    let _c = harness.add_splits(rx, tx);
+    harness.send_from(s, "meh")?;
     Ok(())
   }
+
+  struct BusTestHarness<'d> {
+    pairs: Vec<BusTestPair<'d>>,
+  }
+
+  struct BusTestPair<'d> {
+    index: PairIndex,
+    reader: Box<dyn BusTestReadline + 'd>,
+    writer: Box<dyn BusTestWriteline + Send + 'd>,
+  }
+
+  trait BusTestReadline {
+    fn next_line(&mut self) -> Option<io::Result<String>>;
+  }
+
+  struct HomogenousReadline<'d, I> {
+    reader: Box<dyn Iterator<Item=I> + 'd>,
+  }
+
+  impl <'d> BusTestReadline for HomogenousReadline<'d, io::Result<String>>
+  {
+    fn next_line(&mut self) -> Option<io::Result<String>> {
+      self.reader.next()
+    }
+  }
+
+  trait BusTestWriteline {
+    fn write_line(&mut self, data: &str) -> io::Result<()>;
+  }
+
+  struct HomogenousWriteline<'d> {
+    writer: Box<dyn Write + Send + 'd>,
+  }
+
+  impl <'d> BusTestWriteline for HomogenousWriteline<'d> {
+    fn write_line(&mut self, data: &str) -> io::Result<()> {
+      self.writer.write_all((data.to_owned() + "\n").as_bytes())?;
+      self.writer.flush()?;
+      Ok(())
+    }
+  }
+
+  impl <'d> BusTestHarness<'d> {
+    pub fn new() -> Self {
+      BusTestHarness { pairs: vec![] }
+    }
+
+    pub fn add_transport<T, R, W>(&mut self, transport: T) -> PairIndex
+    where
+        T: Transport<R, W>,
+        R: Read + 'd,
+        W: Write + Send + 'd
+    {
+      let (rx, tx) = transport.split();
+      self.add_splits(rx, tx)
+    }
+
+    pub fn add_splits<R: Read + 'd, W: Write + Send + 'd>(&mut self, rx: R, tx: W) -> PairIndex {
+      let reader = Box::new(HomogenousReadline {
+        reader: Box::new(BufReader::new(rx).lines()),
+      });
+      let writer = Box::new(HomogenousWriteline {
+        writer: Box::new(tx),
+      });
+      let index = PairIndex(self.pairs.len());
+      self.pairs.push(BusTestPair { index, reader, writer });
+      index
+    }
+
+    pub fn send_from(&mut self, pair_index: PairIndex, data: &str) -> io::Result<()> {
+      // Need to use another thread because PipeReader/Writer use a bounded channel of size 0 so
+      // the write will block forever.
+      crossbeam::thread::scope(|s| {
+        let (inputs_left, inputs_right) = self.pairs
+            .split_at_mut(pair_index.0);
+        let mut inputs_right_iter = inputs_right.iter_mut();
+        let out = inputs_right_iter.next().unwrap();
+        let x =
+            inputs_left.iter_mut().chain(inputs_right_iter);
+        let out_handle = s.spawn(|_| {
+          out.writer.write_line(data)?;
+          debug!("Flushed to out: {data}");
+          Ok(())
+        });
+
+        for input in x {
+          let index = input.index.0;
+          assert_eq!(input.reader.next_line().unwrap()?, data, "in{index} mismatch");
+          debug!("Read successfully from in{index}");
+        }
+
+        out_handle.join().unwrap()
+      }).unwrap()
+    }
+  }
+
+  #[derive(Debug, Copy, Clone)]
+  struct PairIndex(usize);
 }

@@ -18,4 +18,8 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       framed_writer,
     }
   }
+
+  pub fn run_loop(self) -> anyhow::Result<()> {
+    todo!()
+  }
 }

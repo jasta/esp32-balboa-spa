@@ -1,18 +1,21 @@
 [package]
-name = "topside-panel-lib"
+name = "mock-topside-panel-app"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+env_logger = "0.10.0"
 log = "0.4.17"
 anyhow = "1"
 thiserror = "1"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 common-lib = { path = "../common-lib" }
+mock-mainboard-lib = { path = "../mock-mainboard-lib" }
+wifi-module-lib = { path = "../wifi-module-lib" }
+topside-panel-lib = { path = "../topside-panel-lib" }
+pipe = "0.4.0"
 embedded-graphics = "0.7.1"
+embedded-graphics-simulator = "0.4.0"
 lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
-
-[dev-dependencies]
-env_logger = "0.10.0"

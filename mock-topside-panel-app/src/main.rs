@@ -4,23 +4,25 @@ use embedded_graphics::geometry::Size;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Window};
 use log::info;
+use lvgl::style::Style;
+use lvgl::{Color, Part, State, UI, Widget};
+use lvgl::widgets::Label;
 use common_lib::bus_transport::BusTransport;
 use common_lib::transport::StdTransport;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::topside_panel::TopsidePanel;
 use wifi_module_lib::wifi_module::WifiModule;
+use topside_panel_lib::ui_handler::UiHandler;
+use crate::simulator_window::SimulatorDevice;
+
+mod simulator_window;
 
 const GRACEFUL_SHUTDOWN_PERIOD: Duration = Duration::from_secs(3);
 const BUS_BUFFER_SIZE: usize = 128;
 
 fn main() -> anyhow::Result<()> {
   env_logger::init();
-
-  let display = SimulatorDisplay::<Rgb565>::new(Size::new(480, 320));
-  let output_settings = OutputSettingsBuilder::new().build();
-
-  let mut window = Window::new("Mock Topside Panel", &output_settings);
 
   let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
   let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
@@ -39,15 +41,22 @@ fn main() -> anyhow::Result<()> {
       .name("HotTub Thread".to_owned())
       .spawn(move || hottub_runner.run_loop().unwrap())?;
 
+  let (topside_control, topside_events, topside_runner) = topside.into_runner();
   let topside_thread = thread::Builder::new()
       .name("Topside Thread".to_owned())
-      .spawn(move || topside.run_loop().unwrap())?;
+      .spawn(move || topside_runner.run_loop().unwrap())?;
 
   let wifi_thread = thread::Builder::new()
       .name("Wifi Thread".to_owned())
       .spawn(move || wifi_module.run_loop().unwrap())?;
 
-  window.show_static(&display);
+  let ui_thread = thread::Builder::new()
+      .name("UI Thread".to_owned())
+      .spawn(move || {
+        UiHandler::new(SimulatorDevice, topside_control, topside_events).run_loop().unwrap()
+      })?;
+
+  ui_thread.join().unwrap();
 
   info!("Window shut down, requesting graceful shutdown...");
   thread::spawn(|| {

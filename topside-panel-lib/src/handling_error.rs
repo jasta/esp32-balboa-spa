@@ -5,4 +5,7 @@ pub(crate) enum HandlingError {
 
   #[error("Peer sent us a malformed, unexpected, or misunderstood payload: {0}")]
   UnexpectedPayload(String),
+
+  #[error("Graceful shutdown requested")]
+  ShutdownRequested,
 }

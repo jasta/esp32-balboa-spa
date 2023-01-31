@@ -5,8 +5,9 @@ use std::io::Write;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use log::debug;
 use balboa_spa_messages::message::Message;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
+#[derive(Debug)]
 pub struct MessageStateMachine<IS, K, C> {
   state: Box<dyn MessageState<Context=C, Kind=K> + Send + 'static>,
   state_mover: StateMover<K, C>,
@@ -36,6 +37,12 @@ where
 {
   pub fn new() -> Self {
     Default::default()
+  }
+}
+
+impl <IS, K, C> MessageStateMachine<IS, K, C> {
+  pub fn state_kind(&self) -> K {
+    &self.state.kind()
   }
 }
 

@@ -1,10 +1,14 @@
 use std::time::{Duration, Instant};
 use balboa_spa_messages::channel::Channel;
 use std::fmt::Debug;
-use balboa_spa_messages::message_types::MessageType;
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
+use balboa_spa_messages::message_types::{MessageType, MessageTypeKind};
 use crate::message_state_machine::SmResult::{NotHandled, HandledNoReply, SendReply};
 use crate::client_ident::ClientIdent;
 use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
+use crate::topside_panel::Event;
+use crate::view_model::{ConnectionState, ViewModel};
 
 const DEFAULT_NEW_CLIENT_RETRY_WAIT: Duration = Duration::from_secs(2);
 
@@ -30,11 +34,11 @@ impl CtsStateMachine {
 pub struct StateWaitingForNewClientCTS;
 
 impl MessageState for StateWaitingForNewClientCTS {
-  type Kind = &'static str;
+  type Kind = CtsStateKind;
   type Context = CtsContext;
 
   fn kind(&self) -> Self::Kind {
-    "WaitingForNewClientCTS"
+    CtsStateKind::WaitingForNewClientCTS
   }
 
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
@@ -61,11 +65,11 @@ struct StateWaitingForChannelAssignment {
 }
 
 impl MessageState for StateWaitingForChannelAssignment {
-  type Kind = &'static str;
+  type Kind = CtsStateKind;
   type Context = CtsContext;
 
   fn kind(&self) -> Self::Kind {
-    "WaitingForChannelAssignment"
+    CtsStateKind::WaitingForChannelAssignment
   }
 
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
@@ -93,11 +97,11 @@ impl MessageState for StateWaitingForChannelAssignment {
 struct StateWaitingForCTS(Channel);
 
 impl MessageState for StateWaitingForCTS {
-  type Kind = &'static str;
+  type Kind = CtsStateKind;
   type Context = CtsContext;
 
   fn kind(&self) -> Self::Kind {
-    "WaitingForCTS"
+    CtsStateKind::WaitingForCTS
   }
 
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
@@ -113,4 +117,11 @@ impl MessageState for StateWaitingForCTS {
       _ => NotHandled,
     }
   }
+}
+
+#[derive(Debug, PartialEq)]
+enum CtsStateKind {
+  WaitingForNewClientCTS,
+  WaitingForChannelAssignment,
+  WaitingForCTS,
 }

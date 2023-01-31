@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{BufRead, Read, Write};
+use std::io::{Read, Write};
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender, SendError, SyncSender, TryRecvError};
+use std::thread;
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use measurements::Temperature;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
@@ -11,14 +14,20 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, PayloadEncodeError, PayloadParseError};
 use common_lib::transport::Transport;
+use HandlingError::ShutdownRequested;
 use crate::cts_state_machine::CtsStateMachine;
 use crate::handling_error::HandlingError;
-use crate::handling_error::HandlingError::{FatalError, UnexpectedPayload};
+use crate::handling_error::HandlingError::FatalError;
 use crate::message_state_machine::MessageHandlingError;
+use crate::view_model::ViewModel;
 
 pub struct TopsidePanel<R, W> {
   framed_reader: FramedReader<R>,
   framed_writer: FramedWriter<W>,
+}
+
+#[derive(Default, Debug)]
+pub struct AppState {
   cts_state_machine: CtsStateMachine,
 }
 
@@ -30,35 +39,193 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     Self {
       framed_reader,
       framed_writer,
-      cts_state_machine: CtsStateMachine::new(),
     }
   }
 
+  pub fn into_runner(self) -> (ControlHandle, ViewModelEventHandle, Runner<R, W>) {
+    let (commands_tx, commands_rx) = mpsc::sync_channel(32);
+    let (events_tx, events_rx) = mpsc::channel();
+    let message_reader = MessageReader {
+      message_tx: commands_tx.clone(),
+      framed_reader: self.framed_reader,
+    };
+    let event_handler = EventHandler {
+      commands_rx,
+      events_tx,
+      framed_writer: self.framed_writer,
+      state: AppState::default(),
+    };
+
+    let control_handle = ControlHandle { commands_tx };
+    let event_handle = ViewModelEventHandle { events_rx };
+    let runner = Runner { message_reader, event_handler };
+    (control_handle, event_handle, runner)
+  }
+}
+
+pub struct ControlHandle {
+  commands_tx: SyncSender<Command>,
+}
+
+impl ControlHandle {
+  pub fn send_button_pressed(&self, button: Button) {
+    let _ = self.commands_tx.send(Command::ButtonPressed(button));
+  }
+
+  pub fn request_shutdown(&self) {
+    let _ = self.commands_tx.send(Command::Shutdown);
+  }
+}
+
+impl Drop for ControlHandle {
+  fn drop(&mut self) {
+    self.request_shutdown();
+  }
+}
+
+pub struct ViewModelEventHandle {
+  events_rx: Receiver<Event>,
+}
+
+impl ViewModelEventHandle {
+  pub fn try_recv_latest(&self) -> Result<Option<ViewModel>, TryRecvError> {
+    let mut latest = None;
+    loop {
+      match self.events_rx.try_recv() {
+        Ok(Event::ModelUpdated(model)) => {
+          latest = Some(model);
+        },
+        Err(TryRecvError::Empty) => return Ok(latest),
+        Err(e) => return Err(e),
+      }
+    }
+  }
+}
+
+pub struct Runner<R, W> {
+  message_reader: MessageReader<R>,
+  event_handler: EventHandler<W>,
+}
+
+impl <R: Read + Send + 'static, W: Write + Send + 'static> Runner<R, W> {
+  pub fn run_loop(mut self) -> anyhow::Result<()> {
+    let message_reader = thread::Builder::new()
+        .name("MessageReader".into())
+        .spawn(move || {
+          if let Err(e) = self.message_reader.run_loop() {
+            warn!("Message reader yielded: {e}");
+          }
+        })
+        .unwrap();
+
+    let result = self.event_handler.run_loop();
+
+    message_reader.join().unwrap();
+
+    result
+  }
+}
+
+struct MessageReader<R> {
+  framed_reader: FramedReader<R>,
+  message_tx: SyncSender<Command>,
+}
+
+impl<R: Read + Send> MessageReader<R> {
+  pub fn run_loop(mut self) -> Result<(), SendError<Command>> {
+    loop {
+      match self.framed_reader.next_message() {
+        Ok(message) => {
+          self.message_tx.send(Command::ReceivedMessage(message))?;
+        }
+        Err(e) => {
+          self.message_tx.send(Command::ReadError(anyhow!("{:?}", e)))?;
+          break;
+        }
+      }
+    }
+    Ok(())
+  }
+}
+
+struct EventHandler<W> {
+  framed_writer: FramedWriter<W>,
+  commands_rx: Receiver<Command>,
+  events_tx: Sender<Event>,
+  state: AppState,
+}
+
+impl <W: Write + Send> EventHandler<W> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
-      match self.handle_next_message() {
-        Ok(_) => {},
-        Err(FatalError(m)) => return Err(anyhow!("{m}")),
-        Err(UnexpectedPayload(m)) => warn!("{m}"),
+      let command = self.commands_rx.recv()?;
+
+      let result = match command {
+        Command::ReceivedMessage(m) => self.handle_message(m),
+        Command::ReadError(e) => Err(FatalError(e.to_string())),
+        Command::ButtonPressed(b) => Ok(self.handle_button(b)),
+        Command::Shutdown => Err(ShutdownRequested),
+      };
+
+      if let Err(ref e) = result {
+        match e {
+          FatalError(m) => {
+            error!("Fatal error: {m}");
+            result?
+          }
+          ShutdownRequested => {
+            info!("Graceful shutdown requested...");
+            return Ok(())
+          }
+          _ => error!("Got {e}"),
+        }
       }
     }
   }
 
-  fn handle_next_message(&mut self) -> Result<(), HandlingError> {
-    let message = self.framed_reader.next_message()
-        .map_err(|e| FatalError(e.to_string()))?;
 
+  fn handle_message(&mut self, message: Message) -> Result<(), HandlingError> {
     let mt = MessageType::try_from(&message)
-        .map_err(|e| UnexpectedPayload(e.to_string()))?;
+        .map_err(|e| HandlingError::UnexpectedPayload(e.to_string()))?;
 
-    self.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
-    if self.cts_state_machine.take_clear_to_send() {
+    self.state.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
+    if self.state.cts_state_machine.take_clear_to_send() {
       warn!("Clear to send, but nothing to say...");
       self.framed_writer.write(&MessageType::NothingToSend().to_message(message.channel)?)
-          .map_err(|e| HandlingError::FatalError(e.to_string()))?;
+          .map_err(|e| FatalError(e.to_string()))?;
     }
     Ok(())
   }
+
+  fn handle_button(&mut self, button: Button) {
+    warn!("handle_button({button:?}): not implemented!");
+    match button {
+      Button::Up => {}
+      Button::Down => {}
+      Button::Jets1 => {}
+      Button::Light => {}
+    }
+  }
+}
+
+#[derive(Debug)]
+pub enum Command {
+  ReceivedMessage(Message),
+  ReadError(anyhow::Error),
+  ButtonPressed(Button),
+  Shutdown,
+}
+
+#[derive(Debug, Clone)]
+pub enum Button {
+  Up,
+  Down,
+  Jets1,
+  Light,
+}
+
+pub enum Event {
+  ModelUpdated(ViewModel),
 }
 
 impl From<MessageHandlingError> for HandlingError {

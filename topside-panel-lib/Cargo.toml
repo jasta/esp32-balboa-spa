@@ -15,6 +15,7 @@ embedded-graphics = "0.7.1"
 lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
+cstr_core = "0.2.6"
 
 [dev-dependencies]
 env_logger = "0.10.0"

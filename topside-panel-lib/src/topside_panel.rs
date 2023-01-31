@@ -198,12 +198,8 @@ impl <W: Write + Send> EventHandler<W> {
   }
 
   fn handle_button(&mut self, button: Button) {
-    warn!("handle_button({button:?}): not implemented!");
     match button {
-      Button::Up => {}
-      Button::Down => {}
-      Button::Jets1 => {}
-      Button::Light => {}
+      _ => warn!("handle_button({button:?}): not implemented!"),
     }
   }
 }

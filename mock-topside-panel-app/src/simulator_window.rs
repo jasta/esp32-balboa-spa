@@ -2,6 +2,7 @@ use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Simul
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::geometry::Size;
 use embedded_graphics_simulator::sdl2::Keycode;
+use log::info;
 use topside_panel_lib::topside_panel::Button;
 use topside_panel_lib::ui_handler::{LcdDevice, UserInputEvent, WindowProxy};
 
@@ -27,7 +28,7 @@ pub struct SimulatorWindowProxy {
 impl WindowProxy<SimulatorDisplay<Rgb565>> for SimulatorWindowProxy {
   fn events(&mut self) -> Vec<UserInputEvent> {
     self.window.events()
-        .filter_map(|e| {
+        .filter_map(|ref e| {
           match e {
             SimulatorEvent::KeyUp { keycode, keymod, repeat } => {
               match keycode {
@@ -35,7 +36,10 @@ impl WindowProxy<SimulatorDisplay<Rgb565>> for SimulatorWindowProxy {
                 Keycode::Down => Some(UserInputEvent::ButtonPressed(Button::Down)),
                 Keycode::J => Some(UserInputEvent::ButtonPressed(Button::Jets1)),
                 Keycode::L => Some(UserInputEvent::ButtonPressed(Button::Light)),
-                _ => None,
+                _ => {
+                  info!("Got: {e:?}");
+                  None
+                }
               }
             }
             SimulatorEvent::Quit => Some(UserInputEvent::Quit),

@@ -53,7 +53,8 @@ fn main() -> anyhow::Result<()> {
   let ui_thread = thread::Builder::new()
       .name("UI Thread".to_owned())
       .spawn(move || {
-        UiHandler::new(SimulatorDevice, topside_control, topside_events).run_loop().unwrap()
+        let handler = UiHandler::new(SimulatorDevice, topside_control, topside_events);
+        handler.run_loop().unwrap()
       })?;
 
   ui_thread.join().unwrap();

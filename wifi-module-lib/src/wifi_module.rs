@@ -1,4 +1,4 @@
-use std::io::{BufRead, Read, Write};
+use std::io::{Read, Write};
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use common_lib::transport::Transport;
@@ -19,7 +19,9 @@ impl <R: Read, W: Write> WifiModule<R, W> {
     }
   }
 
-  pub fn run_loop(self) -> anyhow::Result<()> {
-    todo!()
+  pub fn run_loop(mut self) -> anyhow::Result<()> {
+    loop {
+      let message = self.framed_reader.next_message()?;
+    }
   }
 }

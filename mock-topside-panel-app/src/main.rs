@@ -32,17 +32,17 @@ fn main() -> anyhow::Result<()> {
 
   let topside = TopsidePanel::new(bus_transport.clone());
   let wifi_module = WifiModule::new(bus_transport);
-  
+
   let (hottub_handle, hottub_runner) = main_board.into_runner();
-  let mut hottub_thread = thread::Builder::new()
+  let hottub_thread = thread::Builder::new()
       .name("HotTub Thread".to_owned())
       .spawn(move || hottub_runner.run_loop().unwrap())?;
 
-  let mut topside_thread = thread::Builder::new()
+  let topside_thread = thread::Builder::new()
       .name("Topside Thread".to_owned())
       .spawn(move || topside.run_loop().unwrap())?;
 
-  let mut wifi_thread = thread::Builder::new()
+  let wifi_thread = thread::Builder::new()
       .name("Wifi Thread".to_owned())
       .spawn(move || wifi_module.run_loop().unwrap())?;
 

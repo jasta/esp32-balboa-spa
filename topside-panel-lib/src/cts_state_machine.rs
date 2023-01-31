@@ -1,150 +1,52 @@
 use std::time::{Duration, Instant};
 use balboa_spa_messages::channel::Channel;
 use std::fmt::Debug;
-use log::{debug, info};
-use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::{MessageType, PayloadEncodeError};
-use std::io::Write;
-use balboa_spa_messages::framed_writer::FramedWriter;
-use SmHandleResult::{HandledNoReply, SendReply};
+use balboa_spa_messages::message_types::MessageType;
+use crate::message_state_machine::SmResult::{NotHandled, HandledNoReply, SendReply};
 use crate::client_ident::ClientIdent;
-use crate::cts_state_machine::SmHandleResult::{ClearToSend, NotHandled};
+use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
 
 const DEFAULT_NEW_CLIENT_RETRY_WAIT: Duration = Duration::from_secs(2);
 
-pub struct CTSStateMachine {
-  state: Box<dyn CommunicationState + Send + 'static>,
-  state_mover: StateMover,
+pub type CtsStateMachine = MessageStateMachine<
+  StateWaitingForNewClientCTS,
+  &'static str,
+  CtsContext
+>;
+
+#[derive(Default, Debug)]
+pub struct CtsContext {
   client_ident: ClientIdent,
+  is_clear_to_send: bool,
 }
 
-impl Default for CTSStateMachine {
-  fn default() -> Self {
-    Self {
-      state: Box::new(StateWaitingForNewClientCTS),
-      state_mover: Default::default(),
-      client_ident: Default::default(),
-    }
+impl CtsStateMachine {
+  pub fn take_clear_to_send(&mut self) -> bool {
+    std::mem::take(&mut self.context.is_clear_to_send)
   }
-}
-
-impl CTSStateMachine {
-  pub fn new() -> Self {
-    Default::default()
-  }
-
-  pub fn handle_message<W: Write>(
-      &mut self,
-      writer: &mut FramedWriter<W>,
-      channel: &Channel,
-      mt: &MessageType
-  ) -> Result<SendStatus, CtsHandlingError> {
-    let state_mover = &mut self.state_mover;
-    state_mover.state = None;
-    let mut args = CommunicationStateArgs {
-      sm: state_mover,
-      channel,
-      mt,
-      client_ident: &mut self.client_ident,
-    };
-    let result = Self::dispatch_handle_message(
-        &self.state,
-        writer,
-        &mut args);
-    if let Some(new_state) = std::mem::take(&mut state_mover.state) {
-      self.maybe_move_to_state(new_state);
-    }
-    result
-  }
-
-  fn dispatch_handle_message(
-      to_state: &Box<dyn CommunicationState + Send + 'static>,
-      writer: &mut FramedWriter<impl Write>,
-      args: &mut CommunicationStateArgs
-  ) -> Result<SendStatus, CtsHandlingError> {
-    match to_state.handle_message(args) {
-      ClearToSend => Ok(SendStatus::Clear),
-      HandledNoReply => Ok(SendStatus::NotClear),
-      SendReply(message_result) => {
-        match message_result {
-          Ok(message) => {
-            writer.write(&message)
-                .map_err(|e| CtsHandlingError::FatalError(e.to_string()))?;
-            Ok(SendStatus::NotClear)
-          }
-          Err(e) => Err(CtsHandlingError::FatalError(e.to_string())),
-        }
-      }
-      NotHandled => {
-        // TODO: Probably want some kind of conditionalized logging here, but not 100% sure
-        // what should be excluded yet.  The protocol is _very_ chatty.
-        Ok(SendStatus::NotClear)
-      },
-    }
-  }
-
-  fn maybe_move_to_state(&mut self, new_state: Box<dyn CommunicationState + Send + 'static>) {
-    if self.state.kind() != new_state.kind() {
-      let old_state = &self.state;
-      debug!("Moving from {old_state:?} to {new_state:?}");
-      self.state = new_state;
-    }
-  }
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum CtsHandlingError {
-  #[error("Unrecoverable error that likely requires software updates: {0}")]
-  FatalError(String),
-}
-
-pub enum SendStatus {
-  Clear,
-  NotClear,
-}
-
-struct CommunicationStateArgs<'a> {
-  sm: &'a mut StateMover,
-  channel: &'a Channel,
-  mt: &'a MessageType,
-  client_ident: &'a ClientIdent,
 }
 
 #[derive(Default, Debug)]
-struct StateMover {
-  state: Option<Box<dyn CommunicationState + Send + 'static>>,
-}
+pub struct StateWaitingForNewClientCTS;
 
-impl StateMover {
-  fn move_to_state(&mut self, new_state: impl CommunicationState + Send + 'static) {
-    // Not a real move yet, just records the move to be acted upon after the message is handled.
-    self.state = Some(Box::new(new_state));
-  }
-}
+impl MessageState for StateWaitingForNewClientCTS {
+  type Kind = &'static str;
+  type Context = CtsContext;
 
-trait CommunicationState: Debug {
-  fn kind(&self) -> CommunicationStateKind;
-  fn handle_message(&self, args: &mut CommunicationStateArgs) -> SmHandleResult;
-}
-
-#[derive(Debug)]
-struct StateWaitingForNewClientCTS;
-
-impl CommunicationState for StateWaitingForNewClientCTS {
-  fn kind(&self) -> CommunicationStateKind {
-    CommunicationStateKind::WaitingForNewClientCTS
+  fn kind(&self) -> Self::Kind {
+    "WaitingForNewClientCTS"
   }
 
-  fn handle_message(&self, args: &mut CommunicationStateArgs) -> SmHandleResult {
+  fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
     match (args.channel, args.mt) {
       (&Channel::MulticastChannelAssignment, &MessageType::NewClientClearToSend()) => {
         args.sm.move_to_state(StateWaitingForChannelAssignment {
-          ident: args.client_ident.clone(),
+          ident: args.context.client_ident.clone(),
           requested_at: Instant::now(),
         });
         SendReply(MessageType::ChannelAssignmentRequest {
-          device_type: args.client_ident.device_type,
-          client_hash: args.client_ident.client_hash,
+          device_type: args.context.client_ident.device_type,
+          client_hash: args.context.client_ident.client_hash,
         }.to_message(Channel::MulticastChannelAssignment))
       }
       _ => NotHandled,
@@ -158,12 +60,15 @@ struct StateWaitingForChannelAssignment {
   requested_at: Instant,
 }
 
-impl CommunicationState for StateWaitingForChannelAssignment {
-  fn kind(&self) -> CommunicationStateKind {
-    CommunicationStateKind::WaitingForChannelAssignment
+impl MessageState for StateWaitingForChannelAssignment {
+  type Kind = &'static str;
+  type Context = CtsContext;
+
+  fn kind(&self) -> Self::Kind {
+    "WaitingForChannelAssignment"
   }
 
-  fn handle_message(&self, args: &mut CommunicationStateArgs) -> SmHandleResult {
+  fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
     match (args.channel, args.mt) {
       (&Channel::MulticastChannelAssignment, &MessageType::NewClientClearToSend()) => {
         if self.requested_at.elapsed() >= DEFAULT_NEW_CLIENT_RETRY_WAIT {
@@ -187,31 +92,25 @@ impl CommunicationState for StateWaitingForChannelAssignment {
 #[derive(Debug)]
 struct StateWaitingForCTS(Channel);
 
-impl CommunicationState for StateWaitingForCTS {
-  fn kind(&self) -> CommunicationStateKind {
-    CommunicationStateKind::WaitingForCTS
+impl MessageState for StateWaitingForCTS {
+  type Kind = &'static str;
+  type Context = CtsContext;
+
+  fn kind(&self) -> Self::Kind {
+    "WaitingForCTS"
   }
 
-  fn handle_message(&self, args: &mut CommunicationStateArgs) -> SmHandleResult {
+  fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
     match (args.channel, args.mt) {
       (c, MessageType::ClearToSend()) => {
-        if c == &self.0 { ClearToSend } else { NotHandled }
+        if c == &self.0 {
+          args.context.is_clear_to_send = true;
+          HandledNoReply
+        } else {
+          NotHandled
+        }
       },
       _ => NotHandled,
     }
   }
-}
-
-enum SmHandleResult {
-  ClearToSend,
-  SendReply(Result<Message, PayloadEncodeError>),
-  HandledNoReply,
-  NotHandled,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum CommunicationStateKind {
-  WaitingForNewClientCTS,
-  WaitingForChannelAssignment,
-  WaitingForCTS,
 }

@@ -11,14 +11,15 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, PayloadEncodeError, PayloadParseError};
 use common_lib::transport::Transport;
-use crate::cts_state_machine::{CtsHandlingError, CTSStateMachine, SendStatus};
+use crate::cts_state_machine::CtsStateMachine;
 use crate::handling_error::HandlingError;
 use crate::handling_error::HandlingError::{FatalError, UnexpectedPayload};
+use crate::message_state_machine::MessageHandlingError;
 
 pub struct TopsidePanel<R, W> {
   framed_reader: FramedReader<R>,
   framed_writer: FramedWriter<W>,
-  cts_state_machine: CTSStateMachine,
+  cts_state_machine: CtsStateMachine,
 }
 
 impl<R: Read, W: Write> TopsidePanel<R, W> {
@@ -29,7 +30,7 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     Self {
       framed_reader,
       framed_writer,
-      cts_state_machine: CTSStateMachine::new(),
+      cts_state_machine: CtsStateMachine::new(),
     }
   }
 
@@ -50,22 +51,20 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
     let mt = MessageType::try_from(&message)
         .map_err(|e| UnexpectedPayload(e.to_string()))?;
 
-    match self.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)? {
-      SendStatus::Clear => {
-        warn!("Clear to send, but nothing to say...");
-        self.framed_writer.write(&MessageType::NothingToSend().to_message(message.channel)?)
-            .map_err(|e| HandlingError::FatalError(e.to_string()))?;
-        Ok(())
-      }
-      SendStatus::NotClear => Ok(()),
+    self.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
+    if self.cts_state_machine.take_clear_to_send() {
+      warn!("Clear to send, but nothing to say...");
+      self.framed_writer.write(&MessageType::NothingToSend().to_message(message.channel)?)
+          .map_err(|e| HandlingError::FatalError(e.to_string()))?;
     }
+    Ok(())
   }
 }
 
-impl From<CtsHandlingError> for HandlingError {
-  fn from(value: CtsHandlingError) -> Self {
+impl From<MessageHandlingError> for HandlingError {
+  fn from(value: MessageHandlingError) -> Self {
     match value {
-      CtsHandlingError::FatalError(m) => FatalError(m),
+      MessageHandlingError::FatalError(m) => FatalError(m),
     }
   }
 }

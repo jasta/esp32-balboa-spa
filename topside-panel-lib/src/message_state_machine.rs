@@ -8,45 +8,47 @@ use balboa_spa_messages::message::Message;
 use std::fmt::{Debug, Formatter};
 
 #[derive(Debug)]
-pub struct MessageStateMachine<IS, K, C> {
-  state: Box<dyn MessageState<Context=C, Kind=K> + Send + 'static>,
-  state_mover: StateMover<K, C>,
-  pub context: C,
-  _phantom: PhantomData<IS>,
+pub struct MessageStateMachine<IS: MessageState> {
+  state: Box<dyn MessageState<Context=IS::Context, Kind=IS::Kind> + Send + 'static>,
+  state_mover: StateMover<IS::Kind, IS::Context>,
+  pub context: IS::Context,
 }
 
-impl <IS, K, C> Default for MessageStateMachine<IS, K, C>
+impl <IS> Default for MessageStateMachine<IS>
 where
-    IS: MessageState<Context=C, Kind=K> + Default + Send + 'static,
-    C: Default
+    IS: MessageState + Default + Send + 'static,
+    IS::Context: Default,
 {
   fn default() -> Self {
     Self {
       state: Box::new(IS::default()),
       state_mover: Default::default(),
       context: Default::default(),
-      _phantom: PhantomData,
     }
   }
 }
 
-impl <IS, K, C: Default> MessageStateMachine<IS, K, C>
+impl <IS> MessageStateMachine<IS>
 where
-    IS: MessageState<Context=C, Kind=K> + Default + Send + 'static,
-    C: Default
+    IS: MessageState + Default + Send + 'static,
+    IS::Context: Default,
 {
   pub fn new() -> Self {
     Default::default()
   }
 }
 
-impl <IS, K, C> MessageStateMachine<IS, K, C> {
-  pub fn state_kind(&self) -> K {
-    &self.state.kind()
+impl <IS: MessageState> MessageStateMachine<IS> {
+  pub fn state_kind(&self) -> IS::Kind {
+    self.state.kind()
   }
 }
 
-impl <IS, K: PartialEq, C> MessageStateMachine<IS, K, C> {
+impl <IS> MessageStateMachine<IS>
+where
+    IS: MessageState,
+    IS::Kind: PartialEq,
+{
   pub fn handle_message<W: Write>(
       &mut self,
       writer: &mut FramedWriter<W>,
@@ -72,9 +74,9 @@ impl <IS, K: PartialEq, C> MessageStateMachine<IS, K, C> {
   }
 
   fn dispatch_handle_message(
-      to_state: &Box<dyn MessageState<Context=C, Kind=K> + Send + 'static>,
+      to_state: &Box<dyn MessageState<Context=IS::Context, Kind=IS::Kind> + Send + 'static>,
       writer: &mut FramedWriter<impl Write>,
-      args: &mut StateArgs<K, C>,
+      args: &mut StateArgs<IS::Kind, IS::Context>,
   ) -> Result<(), MessageHandlingError> {
     match to_state.handle_message(args) {
       SmResult::HandledNoReply => Ok(()),
@@ -96,7 +98,10 @@ impl <IS, K: PartialEq, C> MessageStateMachine<IS, K, C> {
     }
   }
 
-  fn maybe_move_to_state(&mut self, new_state: Box<dyn MessageState<Context=C, Kind=K> + Send + 'static>) {
+  fn maybe_move_to_state(
+      &mut self,
+      new_state: Box<dyn MessageState<Context=IS::Context, Kind=IS::Kind> + Send + 'static>
+  ) {
     if self.state.kind() != new_state.kind() {
       let old_state = &self.state;
       debug!("Moving from {old_state:?} to {new_state:?}");

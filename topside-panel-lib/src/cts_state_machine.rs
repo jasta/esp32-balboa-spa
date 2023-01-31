@@ -12,11 +12,7 @@ use crate::view_model::{ConnectionState, ViewModel};
 
 const DEFAULT_NEW_CLIENT_RETRY_WAIT: Duration = Duration::from_secs(2);
 
-pub type CtsStateMachine = MessageStateMachine<
-  StateWaitingForNewClientCTS,
-  &'static str,
-  CtsContext
->;
+pub type CtsStateMachine = MessageStateMachine<StateWaitingForNewClientCTS>;
 
 #[derive(Default, Debug)]
 pub struct CtsContext {
@@ -120,7 +116,7 @@ impl MessageState for StateWaitingForCTS {
 }
 
 #[derive(Debug, PartialEq)]
-enum CtsStateKind {
+pub enum CtsStateKind {
   WaitingForNewClientCTS,
   WaitingForChannelAssignment,
   WaitingForCTS,

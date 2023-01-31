@@ -3,7 +3,6 @@
 
 pub mod main_board;
 pub mod mock_spa;
-mod message_logger;
 mod channel_tracker;
 mod timer_tracker;
 mod clear_to_send_tracker;

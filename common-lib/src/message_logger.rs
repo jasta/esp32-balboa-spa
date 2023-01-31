@@ -3,11 +3,18 @@ use balboa_spa_messages::message_types::MessageTypeKind;
 use log::{Level, log};
 use num_traits::FromPrimitive;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MessageLogger {
+  debug_name: &'static str,
 }
 
 impl MessageLogger {
+  pub fn new(debug_name: &'static str) -> Self {
+    Self {
+      debug_name,
+    }
+  }
+
   pub fn log(&self, direction: MessageDirection, message: &Message) {
     let (suffix, level) = match MessageTypeKind::from_u8(message.message_type) {
       None => ("(unknown!)", Level::Warn),
@@ -28,7 +35,7 @@ impl MessageLogger {
       MessageDirection::Inbound => "<=",
       MessageDirection::Outbound => "=>",
     };
-    log!(level, "{direction_label} Message{suffix}: {message:?}");
+    log!(target: self.debug_name, level, "{direction_label} Message{suffix}: {message:?}");
   }
 }
 

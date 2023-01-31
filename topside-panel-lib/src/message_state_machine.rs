@@ -6,6 +6,7 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use log::debug;
 use balboa_spa_messages::message::Message;
 use std::fmt::{Debug, Formatter};
+use common_lib::message_logger::{MessageDirection, MessageLogger};
 
 #[derive(Debug)]
 pub struct MessageStateMachine<IS: MessageState> {
@@ -52,6 +53,7 @@ where
   pub fn handle_message<W: Write>(
       &mut self,
       writer: &mut FramedWriter<W>,
+      message_logger: &MessageLogger,
       channel: &Channel,
       mt: &MessageType,
   ) -> Result<(), MessageHandlingError> {
@@ -66,6 +68,7 @@ where
     let result = Self::dispatch_handle_message(
         &self.state,
         writer,
+        message_logger,
         &mut args);
     if let Some(new_state) = std::mem::take(&mut state_mover.state) {
       self.maybe_move_to_state(new_state);
@@ -76,6 +79,7 @@ where
   fn dispatch_handle_message(
       to_state: &Box<dyn MessageState<Context=IS::Context, Kind=IS::Kind> + Send + 'static>,
       writer: &mut FramedWriter<impl Write>,
+      message_logger: &MessageLogger,
       args: &mut StateArgs<IS::Kind, IS::Context>,
   ) -> Result<(), MessageHandlingError> {
     match to_state.handle_message(args) {
@@ -83,6 +87,7 @@ where
       SmResult::SendReply(message_result) => {
         match message_result {
           Ok(message) => {
+            message_logger.log(MessageDirection::Outbound, &message);
             writer.write(&message)
                 .map_err(|e| MessageHandlingError::FatalError(e.to_string()))?;
             Ok(())

@@ -13,6 +13,7 @@ use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PayloadEncodeError, PayloadParseError, StatusUpdateMessage};
+use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
 use crate::app_state::AppState;
@@ -50,6 +51,7 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       commands_rx,
       events_tx,
       framed_writer: self.framed_writer,
+      message_logger: MessageLogger::new(module_path!()),
       last_view_model: None,
       state: AppState::default(),
     };
@@ -148,6 +150,7 @@ impl<R: Read + Send> MessageReader<R> {
 
 struct EventHandler<W> {
   framed_writer: FramedWriter<W>,
+  message_logger: MessageLogger,
   commands_rx: Receiver<Command>,
   events_tx: Sender<Event>,
   last_view_model: Option<ViewModel>,
@@ -184,13 +187,15 @@ impl <W: Write + Send> EventHandler<W> {
 
 
   fn handle_message(&mut self, message: Message) -> Result<(), HandlingError> {
+    self.message_logger.log(MessageDirection::Inbound, &message);
+
     let mt = MessageType::try_from(&message)
         .map_err(|e| HandlingError::UnexpectedPayload(e.to_string()))?;
 
     let state_snapshot = self.state.fast_snapshot();
-    self.state.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
+    self.state.cts_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
     if self.state.cts_state_machine.take_current_message_for_us() {
-      self.state.topside_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
+      self.state.topside_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
     }
 
     if self.state.fast_snapshot() != state_snapshot {

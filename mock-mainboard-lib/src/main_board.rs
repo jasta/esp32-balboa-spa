@@ -22,7 +22,7 @@ use balboa_spa_messages::parsed_enum::ParsedEnum;
 use crate::channel_tracker::{ChannelTracker, CtsFailureAction, DeviceKey};
 use crate::channel_manager::{ChannelManager, CtsEnforcementPolicy};
 use crate::clear_to_send_tracker::{ClearToSendTracker, NoCtsReason, SendMessage, SendMessageFactory, TrySendMessageError};
-use crate::message_logger::{MessageDirection, MessageLogger};
+use common_lib::message_logger::{MessageDirection, MessageLogger};
 use crate::mock_spa::{MockSpa, MockSpaState};
 use crate::timer_tracker::{TickAction, TimerTracker};
 use common_lib::transport::Transport;
@@ -79,7 +79,7 @@ where
     let event_handler = EventHandler {
       event_rx: rx,
       framed_writer: self.framed_writer,
-      message_logger: MessageLogger::default(),
+      message_logger: MessageLogger::new(module_path!()),
       state,
     };
 

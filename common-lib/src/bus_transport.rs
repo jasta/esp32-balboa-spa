@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex, PoisonError};
-use log::info;
 use crate::transport::Transport;
 
 pub struct BusTransport<R, W> {
@@ -142,7 +141,6 @@ impl <R: Read, W> Read for BusTransportRx<R, W> {
       0 => state.do_raw_read(my_index, buf),
       _ => {
         let result = my_buffer.read(buf);
-        info!("got {result:?} from buf {my_index}");
         result
       },
     }
@@ -213,7 +211,6 @@ impl <R, W> SharedState<R, W> {
         for (&index, other_buf) in self.all_buffers.iter_mut() {
           if index != my_index {
             other_buf.extend(&user_buf[0..n]);
-            info!("buf {index} is now {} len", other_buf.len());
           }
         }
         Ok(n)

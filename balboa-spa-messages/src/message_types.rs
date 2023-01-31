@@ -697,12 +697,12 @@ impl TryFrom<&[u8]> for InformationResponseMessage {
 
 #[derive(Debug, Clone)]
 pub struct PreferencesResponseMessage {
-  reminder_set: ParsedEnum<Boolean, u8>,
-  temperature_scale: ParsedEnum<TemperatureScale, u8>,
-  clock_mode: ParsedEnum<ClockMode, u8>,
-  cleanup_cycle: ParsedEnum<CleanupCycle, u8>,
-  dolphin_address: u8,
-  m8_artificial_intelligence: ParsedEnum<Boolean, u8>,
+  pub reminder_set: ParsedEnum<Boolean, u8>,
+  pub temperature_scale: ParsedEnum<TemperatureScale, u8>,
+  pub clock_mode: ParsedEnum<ClockMode, u8>,
+  pub cleanup_cycle: ParsedEnum<CleanupCycle, u8>,
+  pub dolphin_address: u8,
+  pub m8_artificial_intelligence: ParsedEnum<Boolean, u8>,
 }
 
 impl TryFrom<&PreferencesResponseMessage> for Vec<u8> {

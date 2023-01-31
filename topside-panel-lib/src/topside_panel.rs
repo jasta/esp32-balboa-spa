@@ -12,10 +12,12 @@ use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::{MessageType, PayloadEncodeError, PayloadParseError};
+use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PayloadEncodeError, PayloadParseError, StatusUpdateMessage};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
-use crate::cts_state_machine::CtsStateMachine;
+use crate::app_state::AppState;
+use crate::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
+use crate::cts_state_machine::{CtsStateKind, CtsStateMachine};
 use crate::handling_error::HandlingError;
 use crate::handling_error::HandlingError::FatalError;
 use crate::message_state_machine::MessageHandlingError;
@@ -24,11 +26,6 @@ use crate::view_model::ViewModel;
 pub struct TopsidePanel<R, W> {
   framed_reader: FramedReader<R>,
   framed_writer: FramedWriter<W>,
-}
-
-#[derive(Default, Debug)]
-pub struct AppState {
-  cts_state_machine: CtsStateMachine,
 }
 
 impl<R: Read, W: Write> TopsidePanel<R, W> {
@@ -53,6 +50,7 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       commands_rx,
       events_tx,
       framed_writer: self.framed_writer,
+      last_view_model: None,
       state: AppState::default(),
     };
 
@@ -152,6 +150,7 @@ struct EventHandler<W> {
   framed_writer: FramedWriter<W>,
   commands_rx: Receiver<Command>,
   events_tx: Sender<Event>,
+  last_view_model: Option<ViewModel>,
   state: AppState,
 }
 
@@ -188,12 +187,21 @@ impl <W: Write + Send> EventHandler<W> {
     let mt = MessageType::try_from(&message)
         .map_err(|e| HandlingError::UnexpectedPayload(e.to_string()))?;
 
+    let state_snapshot = self.state.fast_snapshot();
     self.state.cts_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
-    if self.state.cts_state_machine.take_clear_to_send() {
-      warn!("Clear to send, but nothing to say...");
-      self.framed_writer.write(&MessageType::NothingToSend().to_message(message.channel)?)
-          .map_err(|e| FatalError(e.to_string()))?;
+    if self.state.cts_state_machine.take_current_message_for_us() {
+      self.state.topside_state_machine.handle_message(&mut self.framed_writer, &message.channel, &mt)?;
     }
+
+    if self.state.fast_snapshot() != state_snapshot {
+      let model = self.state.generate_view_model();
+      if self.last_view_model.as_ref() != Some(&model) {
+        info!("Emitting new model: {model:?}");
+        self.last_view_model = Some(model.clone());
+        let _ = self.events_tx.send(Event::ModelUpdated(model));
+      }
+    }
+
     Ok(())
   }
 

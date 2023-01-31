@@ -5,3 +5,5 @@ mod handling_error;
 pub mod view_model;
 pub mod message_state_machine;
 pub mod ui_handler;
+mod topside_state_machine;
+mod app_state;

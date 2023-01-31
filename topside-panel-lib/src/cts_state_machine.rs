@@ -17,12 +17,12 @@ pub type CtsStateMachine = MessageStateMachine<StateWaitingForNewClientCTS>;
 #[derive(Default, Debug)]
 pub struct CtsContext {
   client_ident: ClientIdent,
-  is_clear_to_send: bool,
+  current_message_for_us: bool,
 }
 
 impl CtsStateMachine {
-  pub fn take_clear_to_send(&mut self) -> bool {
-    std::mem::take(&mut self.context.is_clear_to_send)
+  pub fn take_current_message_for_us(&mut self) -> bool {
+    std::mem::take(&mut self.context.current_message_for_us)
   }
 }
 
@@ -78,7 +78,7 @@ impl MessageState for StateWaitingForChannelAssignment {
       }
       (&Channel::MulticastChannelAssignment, &MessageType::ChannelAssignmentResponse { channel, client_hash }) => {
         if self.ident.client_hash == client_hash {
-          args.sm.move_to_state(StateWaitingForCTS(channel));
+          args.sm.move_to_state(StateWaitingForChannelAssigned(channel));
           SendReply(MessageType::ChannelAssignmentAck().to_message(channel))
         } else {
           NotHandled
@@ -90,27 +90,22 @@ impl MessageState for StateWaitingForChannelAssignment {
 }
 
 #[derive(Debug)]
-struct StateWaitingForCTS(Channel);
+struct StateWaitingForChannelAssigned(Channel);
 
-impl MessageState for StateWaitingForCTS {
+impl MessageState for StateWaitingForChannelAssigned {
   type Kind = CtsStateKind;
   type Context = CtsContext;
 
   fn kind(&self) -> Self::Kind {
-    CtsStateKind::WaitingForCTS
+    CtsStateKind::ChannelAssigned
   }
 
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
-    match (args.channel, args.mt) {
-      (c, MessageType::ClearToSend()) => {
-        if c == &self.0 {
-          args.context.is_clear_to_send = true;
-          HandledNoReply
-        } else {
-          NotHandled
-        }
-      },
-      _ => NotHandled,
+    if args.channel == &self.0 {
+      args.context.current_message_for_us = true;
+      HandledNoReply
+    } else {
+      NotHandled
     }
   }
 }
@@ -119,5 +114,5 @@ impl MessageState for StateWaitingForCTS {
 pub enum CtsStateKind {
   WaitingForNewClientCTS,
   WaitingForChannelAssignment,
-  WaitingForCTS,
+  ChannelAssigned,
 }

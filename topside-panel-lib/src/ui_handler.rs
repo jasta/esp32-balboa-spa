@@ -88,7 +88,7 @@ where
       }
 
       if let Some(model) = self.model_events.try_recv_latest().unwrap() {
-        label.set_text(CString::new(format!("{:?}", model.state)).unwrap().as_c_str());
+        label.set_text(CString::new(format!("{:?}", model.conn_state)).unwrap().as_c_str());
       }
 
       thread::sleep(Duration::from_millis(20));

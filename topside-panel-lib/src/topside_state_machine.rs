@@ -11,7 +11,6 @@ pub type TopsideStateMachine = MessageStateMachine<StateWaitingForCts>;
 pub struct TopsideContext {
   pub info: Option<InformationResponseMessage>,
   pub config: Option<ConfigurationResponseMessage>,
-  pub prefs: Option<PreferencesResponseMessage>,
   pub status: Option<ReceivedStatusMessage>,
 }
 
@@ -32,9 +31,7 @@ impl ReceivedStatusMessage {
 
 impl TopsideContext {
   pub fn got_it_all(&self) -> bool {
-    self.info.is_some() &&
-        self.config.is_some() &&
-        self.prefs.is_some()
+    self.info.is_some() && self.config.is_some()
   }
 }
 
@@ -56,8 +53,6 @@ impl MessageState for StateWaitingForCts {
           Some(SettingsRequestMessage::Information)
         } else if args.context.config.is_none() {
           Some(SettingsRequestMessage::Configuration)
-        } else if args.context.prefs.is_none() {
-          Some(SettingsRequestMessage::Preferences)
         } else {
           None
         };
@@ -95,11 +90,6 @@ impl MessageState for StateWaitingForResponse {
       MessageType::ConfigurationResponse(m) => {
         debug!("Got configuration: {m:?}");
         args.context.config = Some(m.clone());
-        HandledNoReply
-      }
-      MessageType::PreferencesResponse(m) => {
-        debug!("Got preferences: {m:?}");
-        args.context.prefs = Some(m.clone());
         HandledNoReply
       }
       _ => NotHandled,

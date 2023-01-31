@@ -45,35 +45,32 @@ impl AppState {
   fn generate_hot_tub_model(&self) -> Option<HotTubModel> {
     let info = &self.topside_state_machine.context.info;
     let config = &self.topside_state_machine.context.config;
-    let prefs = &self.topside_state_machine.context.prefs;
     let status = &self.topside_state_machine.context.status;
 
     if let Some(info) = info {
       if let Some(config) = config {
-        if let Some(prefs) = prefs {
-          if let Some(status) = status {
-            let status_v1 = &status.message.v1;
-            let current_temp = status_v1.current_temperature
-                .clone()
-                .map(|t| t.temperature);
-            let set_temp = status_v1.set_temperature.clone().temperature;
-            let heating_state = status_v1.heating_state.as_ref()
-                .unwrap_or(&HeatingState::Off);
-            let is_heating = match heating_state {
-              HeatingState::Off => false,
-              HeatingState::Heating => true,
-              HeatingState::HeatWaiting => false,
-            };
-            let devices = DeviceMapper::convert(config, status_v1);
-            let model = HotTubModel {
-              received_at: status.received_at,
-              current_temp,
-              set_temp,
-              is_heating,
-              devices,
-            };
-            return Some(model);
-          }
+        if let Some(status) = status {
+          let status_v1 = &status.message.v1;
+          let current_temp = status_v1.current_temperature
+              .clone()
+              .map(|t| t.temperature);
+          let set_temp = status_v1.set_temperature.clone().temperature;
+          let heating_state = status_v1.heating_state.as_ref()
+              .unwrap_or(&HeatingState::Off);
+          let is_heating = match heating_state {
+            HeatingState::Off => false,
+            HeatingState::Heating => true,
+            HeatingState::HeatWaiting => false,
+          };
+          let devices = DeviceMapper::convert(config, status_v1);
+          let model = HotTubModel {
+            received_at: status.received_at,
+            current_temp,
+            set_temp,
+            is_heating,
+            devices,
+          };
+          return Some(model);
         }
       }
     }

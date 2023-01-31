@@ -1,4 +1,5 @@
 use std::time::Instant;
+use log::{debug, info};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
 use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
@@ -54,7 +55,7 @@ impl MessageState for StateWaitingForCts {
         let request = if args.context.info.is_none() {
           Some(SettingsRequestMessage::Information)
         } else if args.context.config.is_none() {
-          Some(SettingsRequestMessage::Information)
+          Some(SettingsRequestMessage::Configuration)
         } else if args.context.prefs.is_none() {
           Some(SettingsRequestMessage::Preferences)
         } else {
@@ -87,14 +88,17 @@ impl MessageState for StateWaitingForResponse {
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
     let reply = match args.mt {
       MessageType::InformationResponse(m) => {
+        debug!("Got information: {m:?}");
         args.context.info = Some(m.clone());
         HandledNoReply
       }
       MessageType::ConfigurationResponse(m) => {
+        debug!("Got configuration: {m:?}");
         args.context.config = Some(m.clone());
         HandledNoReply
       }
       MessageType::PreferencesResponse(m) => {
+        debug!("Got preferences: {m:?}");
         args.context.prefs = Some(m.clone());
         HandledNoReply
       }
@@ -102,7 +106,10 @@ impl MessageState for StateWaitingForResponse {
     };
 
     if args.context.got_it_all() {
+      info!("Got everything, moving to continuously reading status...");
       args.sm.move_to_state(StateReadingStatus);
+    } else {
+      args.sm.move_to_state(StateWaitingForCts);
     }
 
     reply

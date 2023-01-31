@@ -1,4 +1,5 @@
 use std::io::Write;
+use log::debug;
 use crate::frame_encoder::FrameEncoder;
 use crate::message::Message;
 
@@ -20,6 +21,7 @@ impl<W: Write> FramedWriter<W> {
     let encoded = self.framed_writer.encode(message)?;
     self.raw_writer.write_all(&encoded)?;
     self.raw_writer.flush()?;
+    debug!("Wrote {} bytes...", encoded.len());
     Ok(())
   }
 }

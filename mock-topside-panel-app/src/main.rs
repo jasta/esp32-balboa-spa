@@ -44,14 +44,12 @@ fn main() -> anyhow::Result<()> {
       .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX)
       .set_init_delay(Duration::from_secs(5));
 
-  let bus_transport = StdTransport::new(client_in, client_out);
+  let bus_transport = BusTransport::new(
+    StdTransport::new(client_in, client_out),
+    BUS_BUFFER_SIZE);
 
-  // let bus_transport = BusTransport::new(
-  //   StdTransport::new(client_in, client_out),
-  //   BUS_BUFFER_SIZE);
-  //
-  let topside = TopsidePanel::new(bus_transport);
-  // let wifi_module = WifiModule::new(bus_transport);
+  let topside = TopsidePanel::new(bus_transport.clone());
+  let wifi_module = WifiModule::new(bus_transport);
 
   let (hottub_handle, hottub_runner) = main_board.into_runner();
   let hottub_thread = thread::Builder::new()
@@ -63,9 +61,9 @@ fn main() -> anyhow::Result<()> {
       .name("Topside Thread".to_owned())
       .spawn(move || topside_runner.run_loop().unwrap())?;
 
-  // let wifi_thread = thread::Builder::new()
-  //     .name("Wifi Thread".to_owned())
-  //     .spawn(move || wifi_module.run_loop().unwrap())?;
+  let wifi_thread = thread::Builder::new()
+      .name("Wifi Thread".to_owned())
+      .spawn(move || wifi_module.run_loop().unwrap())?;
 
   let ui_thread = thread::Builder::new()
       .name("UI Thread".to_owned())

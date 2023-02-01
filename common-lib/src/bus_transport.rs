@@ -6,11 +6,14 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::io::{ErrorKind, Read, Write};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::transport::Transport;
 
 pub struct BusTransport<R, W> {
-  inner: SharedWrapper<R, W>,
+  raw_reader: Arc<Mutex<R>>,
+  raw_writer: Arc<Mutex<W>>,
+  shared: SharedWrapper,
 }
 
 impl <R, W> BusTransport<R, W>
@@ -20,9 +23,11 @@ where
 {
   pub fn new(transport: impl Transport<R, W>, buffer_size: usize) -> Self {
     let (raw_reader, raw_writer) = transport.split();
-    let shared_state = SharedState::new(raw_reader, raw_writer, buffer_size);
+    let shared_state = SharedState::new(buffer_size);
     Self {
-      inner: SharedWrapper::new(shared_state),
+      raw_reader: Arc::new(Mutex::new(raw_reader)),
+      raw_writer: Arc::new(Mutex::new(raw_writer)),
+      shared: SharedWrapper::new(shared_state),
     }
   }
 }
@@ -30,35 +35,70 @@ where
 impl <R, W> Clone for BusTransport<R, W> {
   fn clone(&self) -> Self {
     Self {
-      inner: self.inner.clone_add_client(),
+      raw_reader: self.raw_reader.clone(),
+      raw_writer: self.raw_writer.clone(),
+      shared: self.shared.clone_add_client(),
     }
   }
 }
 
-struct SharedWrapper<R, W> {
+struct SharedWrapper {
   my_index: usize,
-  state: Arc<Mutex<SharedState<R, W>>>,
+  state: Arc<RwLock<SharedState>>,
 }
 
-impl <R, W> SharedWrapper<R, W> {
-  pub fn new(mut state: SharedState<R, W>) -> Self {
+impl SharedWrapper {
+  pub fn new(mut state: SharedState) -> Self {
     let my_index = state.add_client();
     Self {
       my_index,
-      state: Arc::new(Mutex::new(state)),
+      state: Arc::new(RwLock::new(state)),
     }
   }
 
   pub fn clone_add_client(&self) -> Self {
-    let next_index = self.state.lock().unwrap().add_client();
+    let next_index = self.state.write().unwrap().add_client();
     Self {
       my_index: next_index,
       state: self.state.clone(),
     }
   }
+
+  pub fn check_error(&self) -> io::Result<()> {
+    self.state.read()
+        .map_err(lock_io_err)?
+        .check_error()
+  }
+
+  pub fn needs_raw_read(&self) -> io::Result<bool> {
+    let state = self.state.read().map_err(lock_io_err)?;
+    let buffer = state.all_buffers.get(&self.my_index)
+        .unwrap_or_else(|| panic!("Internal error: my_index={}", self.my_index));
+    state.check_error()?;
+    Ok(buffer.is_empty())
+  }
+
+  pub fn buffer_read(&self, buf: &mut [u8]) -> io::Result<usize> {
+    let mut state = self.state.write().map_err(lock_io_err)?;
+    let buffer = state.all_buffers.get_mut(&self.my_index)
+        .unwrap_or_else(|| panic!("Internal error: my_index={}", self.my_index));
+
+    buffer.read(buf)
+  }
+
+  pub fn buffer_append(&self, buf: &[u8], from_result: io::Result<usize>) -> io::Result<usize> {
+    let mut state = self.state.write().map_err(lock_io_err)?;
+    state.handle_result(self.my_index, buf, from_result)
+  }
+
+  pub fn set_error(&self, error: RxTxError) -> io::Result<()> {
+    let mut state = self.state.write().map_err(lock_io_err)?;
+    state.set_error(error.clone());
+    Err(error.into())
+  }
 }
 
-impl <R, W> Clone for SharedWrapper<R, W> {
+impl Clone for SharedWrapper {
   fn clone(&self) -> Self {
     Self {
       my_index: self.my_index,
@@ -67,27 +107,23 @@ impl <R, W> Clone for SharedWrapper<R, W> {
   }
 }
 
-impl <R, W> Drop for SharedWrapper<R, W> {
+impl Drop for SharedWrapper {
   fn drop(&mut self) {
-    self.state.lock().unwrap().drop_client(self.my_index);
+    self.state.write().unwrap().drop_client(self.my_index);
   }
 }
 
-struct SharedState<R, W> {
-  raw_reader: R,
-  raw_writer: W,
+struct SharedState {
   buffer_size: usize,
   all_buffers: BTreeMap<usize, VecDeque<u8>>,
   got_error: Option<RxTxError>,
 }
 
-impl <R, W> SharedState<R, W> {
-  pub fn new(raw_reader: R, raw_writer: W, buffer_size: usize) -> Self {
+impl SharedState {
+  pub fn new(buffer_size: usize) -> Self {
     let all_buffers = BTreeMap::new();
     Self {
       buffer_size,
-      raw_reader,
-      raw_writer,
       all_buffers,
       got_error: None,
     }
@@ -104,65 +140,89 @@ impl <R, W> SharedState<R, W> {
   }
 }
 
-impl <R, W> Transport<BusTransportRx<R, W>, BusTransportTx<R, W>> for BusTransport<R, W>
+impl <R, W> Transport<BusTransportRx<R>, BusTransportTx<W>> for BusTransport<R, W>
 where
     R: Read,
     W: Write,
 {
-  fn split(self) -> (BusTransportRx<R, W>, BusTransportTx<R, W>) {
+  fn split(self) -> (BusTransportRx<R>, BusTransportTx<W>) {
     let rx = BusTransportRx {
-      inner: self.inner.clone(),
+      reader: self.raw_reader,
+      shared: self.shared.clone(),
     };
     let tx = BusTransportTx {
-      inner: self.inner,
+      writer: self.raw_writer,
+      shared: self.shared,
     };
     (rx, tx)
   }
 }
 
-pub struct BusTransportRx<R, W> {
-  inner: SharedWrapper<R, W>,
+pub struct BusTransportRx<R> {
+  reader: Arc<Mutex<R>>,
+  shared: SharedWrapper,
 }
 
 pub type RxEvent = io::Result<Vec<u8>>;
 
-impl <R: Read, W> Read for BusTransportRx<R, W> {
+impl <R: Read> Read for BusTransportRx<R> {
   fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
     if buf.is_empty() {
       return Ok(0);
     }
 
-    let my_index = self.inner.my_index;
-    let mut state = self.inner.state.lock().map_err(lock_io_err)?;
+    if self.shared.needs_raw_read()? {
+      let mut raw_reader = self.reader.lock().map_err(lock_io_err)?;
 
-    let my_buffer = state.all_buffers.get_mut(&my_index)
-        .unwrap_or_else(|| panic!("Internal error: my_index={my_index}"));
-    match my_buffer.len() {
-      0 => state.do_raw_read(my_index, buf),
-      _ => {
-        let result = my_buffer.read(buf);
-        result
-      },
+      // Gotta check again because we don't hold the lock during the read operation -- we could
+      // have since modified the shared buffer.
+      if self.shared.needs_raw_read()? {
+        let result = match raw_reader.read(buf) {
+          Ok(0) => self.shared.set_error(RxTxError::UnexpectedEof).map(|_| 0),
+          r => self.shared.buffer_append(buf, r),
+        };
+
+        // We must hold this lock past when we take the shared write lock so that we can
+        // gaurantee once a thread holds the raw reader/writer lock that the shared state
+        // is fully consistent with any previous writes.
+        drop(raw_reader);
+
+        return result;
+      }
     }
+
+    // Didn't need the raw reader, read from the buffer...
+    self.shared.buffer_read(buf)
   }
 }
 
-pub struct BusTransportTx<R, W> {
-  inner: SharedWrapper<R, W>,
+pub struct BusTransportTx<W> {
+  writer: Arc<Mutex<W>>,
+  shared: SharedWrapper,
 }
 
-impl <R, W: Write> Write for BusTransportTx<R, W> {
+impl <W: Write> Write for BusTransportTx<W> {
   fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-    self.inner.state.lock()
-        .map_err(lock_io_err)?
-        .do_raw_write(self.inner.my_index, buf)
+    self.shared.check_error()?;
+
+    let mut writer = self.writer.lock().map_err(lock_io_err)?;
+
+    // Must check again, the previous write lock holder might have caused an error...
+    self.shared.check_error()?;
+
+    let raw_result = writer.write(buf);
+
+    // Here we can drop the write lock before we take the shared lock because we don't
+    // guarantee any ordering rules in the order of concurrent writes (as would be the case
+    // if our bus was externally connected).
+    drop(writer);
+
+    self.shared.buffer_append(buf, raw_result)
   }
 
   fn flush(&mut self) -> io::Result<()> {
-    let raw_writer = &mut self.inner.state.lock()
-        .map_err(lock_io_err)?
-        .raw_writer;
-    raw_writer.flush()
+    let mut writer = self.writer.lock().map_err(lock_io_err)?;
+    writer.flush()
   }
 }
 
@@ -170,56 +230,34 @@ fn lock_io_err<T>(error: PoisonError<T>) -> io::Error {
   io::Error::new(ErrorKind::BrokenPipe, format!("{error:?}"))
 }
 
-impl <R: Read, W> SharedState<R, W> {
-  pub fn do_raw_read(&mut self, my_index: usize, user_buf: &mut [u8]) -> io::Result<usize> {
-    if let Some(ref e) = self.got_error {
-      return Err(e.into());
-    }
-
-    let raw_result = self.raw_reader.read(user_buf);
-    match raw_result {
-      Ok(0) => {
-        let e = RxTxError::UnexpectedEof;
-        self.got_error = Some(e.clone());
-        Err(e.into())
-      }
-      _ => self.handle_result(my_index, user_buf, raw_result),
+impl SharedState {
+  fn check_error(&self) -> io::Result<()> {
+    match self.got_error {
+      Some(ref e) => Err(e.into()),
+      None => Ok(()),
     }
   }
-}
 
-impl <R, W: Write> SharedState<R, W> {
-  pub fn do_raw_write(&mut self, my_index: usize, user_buf: &[u8]) -> io::Result<usize> {
-    if let Some(ref e) = self.got_error {
-      return Err(e.into());
-    }
-
-    if user_buf.is_empty() {
-      return Ok(0);
-    }
-
-    let raw_result = self.raw_writer.write(user_buf);
-    self.handle_result(my_index, user_buf, raw_result)
-  }
-}
-
-impl <R, W> SharedState<R, W> {
   fn handle_result(&mut self, my_index: usize, user_buf: &[u8], result: io::Result<usize>) -> io::Result<usize> {
     match result {
       Ok(0) => Ok(0),
       Ok(n) => {
-        for (&index, other_buf) in self.all_buffers.iter_mut() {
-          if index != my_index {
-            other_buf.extend(&user_buf[0..n]);
+          for (&index, other_buf) in self.all_buffers.iter_mut() {
+            if index != my_index {
+              other_buf.extend(&user_buf[0..n]);
+            }
           }
-        }
-        Ok(n)
+          Ok(n)
       }
       Err(e) => {
         self.got_error = Some(RxTxError::IoError(e.kind(), e.to_string()));
         Err(e)
       }
     }
+  }
+
+  fn set_error(&mut self, error: RxTxError) {
+    self.got_error = Some(error);
   }
 }
 
@@ -290,7 +328,7 @@ mod tests {
 
     let (rx, tx) = client.split();
 
-    assert_eq!(rx.inner.state.lock().unwrap().all_buffers.len(), 1);
+    assert_eq!(rx.shared.state.read().unwrap().all_buffers.len(), 1);
     let mut harness = BusTestHarness::new();
     let s = harness.add_splits(server_in, server_out);
     let _c = harness.add_splits(rx, tx);
@@ -309,7 +347,7 @@ mod tests {
     let (_, _) = multiplex.split();
     let (rx, tx) = client.split();
 
-    assert_eq!(rx.inner.state.lock().unwrap().all_buffers.len(), 1);
+    assert_eq!(rx.shared.state.read().unwrap().all_buffers.len(), 1);
     let mut harness = BusTestHarness::new();
     let s = harness.add_splits(server_in, server_out);
     let _c = harness.add_splits(rx, tx);

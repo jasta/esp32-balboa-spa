@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
 
   let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
   let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::from_millis(30))
+      .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX)
       .set_init_delay(Duration::from_secs(5));
 
   let bus_transport = BusTransport::new(

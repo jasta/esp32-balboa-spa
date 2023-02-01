@@ -203,13 +203,7 @@ pub struct BusTransportTx<W> {
 
 impl <W: Write> Write for BusTransportTx<W> {
   fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-    self.shared.check_error()?;
-
     let mut writer = self.writer.lock().map_err(lock_io_err)?;
-
-    // Must check again, the previous write lock holder might have caused an error...
-    self.shared.check_error()?;
-
     let raw_result = writer.write(buf);
 
     // Here we can drop the write lock before we take the shared lock because we don't

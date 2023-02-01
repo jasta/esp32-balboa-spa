@@ -73,7 +73,7 @@ impl SharedWrapper {
   pub fn needs_raw_read(&self) -> io::Result<bool> {
     let state = self.state.read().map_err(lock_io_err)?;
     let buffer = state.all_buffers.get(&self.my_index)
-        .unwrap_or_else(|| panic!("Internal error: my_index={}", self.my_index));
+        .ok_or_else(dropped_err)?;
     state.check_error()?;
     Ok(buffer.is_empty())
   }
@@ -81,7 +81,7 @@ impl SharedWrapper {
   pub fn buffer_read(&self, buf: &mut [u8]) -> io::Result<usize> {
     let mut state = self.state.write().map_err(lock_io_err)?;
     let buffer = state.all_buffers.get_mut(&self.my_index)
-        .unwrap_or_else(|| panic!("Internal error: my_index={}", self.my_index));
+        .ok_or_else(dropped_err)?;
 
     buffer.read(buf)
   }
@@ -228,6 +228,10 @@ impl <W: Write> Write for BusTransportTx<W> {
 
 fn lock_io_err<T>(error: PoisonError<T>) -> io::Error {
   io::Error::new(ErrorKind::BrokenPipe, format!("{error:?}"))
+}
+
+fn dropped_err() -> io::Error {
+  io::Error::new(ErrorKind::BrokenPipe, "dropped rx or tx")
 }
 
 impl SharedState {

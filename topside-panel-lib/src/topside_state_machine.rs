@@ -123,6 +123,7 @@ impl MessageState for StateReadingStatus {
         SendReply(MessageType::NothingToSend().to_message(*args.channel))
       }
       MessageType::StatusUpdate(m) => {
+        info!("Got status update: {m:?}");
         args.context.status = Some(ReceivedStatusMessage::received(m.clone()));
         HandledNoReply
       }

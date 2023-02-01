@@ -7,3 +7,4 @@ pub mod message_state_machine;
 pub mod ui_handler;
 mod topside_state_machine;
 mod app_state;
+mod channel_filter;

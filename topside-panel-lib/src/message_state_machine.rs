@@ -7,12 +7,14 @@ use log::debug;
 use balboa_spa_messages::message::Message;
 use std::fmt::{Debug, Formatter};
 use common_lib::message_logger::{MessageDirection, MessageLogger};
+use crate::channel_filter::{ChannelFilter, FilterResult};
 
 #[derive(Debug)]
 pub struct MessageStateMachine<IS: MessageState> {
   state: Box<dyn MessageState<Context=IS::Context, Kind=IS::Kind> + Send + 'static>,
   state_mover: StateMover<IS::Kind, IS::Context>,
   pub context: IS::Context,
+  channel_filter: ChannelFilter,
 }
 
 impl <IS> Default for MessageStateMachine<IS>
@@ -25,6 +27,7 @@ where
       state: Box::new(IS::default()),
       state_mover: Default::default(),
       context: Default::default(),
+      channel_filter: ChannelFilter::None,
     }
   }
 }
@@ -36,6 +39,10 @@ where
 {
   pub fn new() -> Self {
     Default::default()
+  }
+
+  pub fn set_channel_filter(&mut self, channel_filter: ChannelFilter) {
+    self.channel_filter = channel_filter;
   }
 }
 
@@ -57,6 +64,12 @@ where
       channel: &Channel,
       mt: &MessageType,
   ) -> Result<(), MessageHandlingError> {
+    let filter_result = self.channel_filter.apply(channel);
+    if filter_result == FilterResult::Blocked {
+      debug!("Filtered out message on {channel:?}");
+      return Ok(());
+    }
+
     let state_mover = &mut self.state_mover;
     state_mover.state = None;
     let mut args = StateArgs {
@@ -64,6 +77,7 @@ where
       channel,
       mt,
       context: &mut self.context,
+      channel_match: filter_result,
     };
     let result = Self::dispatch_handle_message(
         &self.state,
@@ -126,6 +140,7 @@ pub struct StateArgs<'a, K, C> {
   pub channel: &'a Channel,
   pub mt: &'a MessageType,
   pub context: &'a mut C,
+  pub channel_match: FilterResult,
 }
 
 #[derive(Debug)]

@@ -17,7 +17,8 @@ use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
 use crate::app_state::AppState;
-use crate::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
+use crate::channel_filter::ChannelFilter;
+use crate::topside_state_machine::{StateReadingStatus, TopsideStateKind, TopsideStateMachine};
 use crate::cts_state_machine::{CtsStateKind, CtsStateMachine};
 use crate::handling_error::HandlingError;
 use crate::handling_error::HandlingError::FatalError;
@@ -194,9 +195,12 @@ impl <W: Write + Send> EventHandler<W> {
 
     let state_snapshot = self.state.fast_snapshot();
     self.state.cts_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
-    if self.state.cts_state_machine.take_current_message_for_us() {
-      self.state.topside_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
+    if let Some(channel) = self.state.cts_state_machine.take_got_channel() {
+      debug!("Setting channel filter for {:?}", channel);
+      self.state.topside_state_machine.set_channel_filter(
+          ChannelFilter::RelevantTo(channel));
     }
+    self.state.topside_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
 
     if self.state.fast_snapshot() != state_snapshot {
       let model = self.state.generate_view_model();

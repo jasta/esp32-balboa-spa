@@ -17,12 +17,12 @@ pub type CtsStateMachine = MessageStateMachine<StateWaitingForNewClientCTS>;
 #[derive(Default, Debug)]
 pub struct CtsContext {
   client_ident: ClientIdent,
-  current_message_for_us: bool,
+  got_channel: Option<Channel>,
 }
 
 impl CtsStateMachine {
-  pub fn take_current_message_for_us(&mut self) -> bool {
-    std::mem::take(&mut self.context.current_message_for_us)
+  pub fn take_got_channel(&mut self) -> Option<Channel> {
+    std::mem::take(&mut self.context.got_channel)
   }
 }
 
@@ -78,7 +78,8 @@ impl MessageState for StateWaitingForChannelAssignment {
       }
       (&Channel::MulticastChannelAssignment, &MessageType::ChannelAssignmentResponse { channel, client_hash }) => {
         if self.ident.client_hash == client_hash {
-          args.sm.move_to_state(StateWaitingForChannelAssigned(channel));
+          args.context.got_channel = Some(channel);
+          args.sm.move_to_state(StateChannelAssigned(channel));
           SendReply(MessageType::ChannelAssignmentAck().to_message(channel))
         } else {
           NotHandled
@@ -90,9 +91,9 @@ impl MessageState for StateWaitingForChannelAssignment {
 }
 
 #[derive(Debug)]
-struct StateWaitingForChannelAssigned(Channel);
+struct StateChannelAssigned(Channel);
 
-impl MessageState for StateWaitingForChannelAssigned {
+impl MessageState for StateChannelAssigned {
   type Kind = CtsStateKind;
   type Context = CtsContext;
 
@@ -101,12 +102,7 @@ impl MessageState for StateWaitingForChannelAssigned {
   }
 
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
-    if args.channel == &self.0 {
-      args.context.current_message_for_us = true;
-      HandledNoReply
-    } else {
-      NotHandled
-    }
+    NotHandled
   }
 }
 

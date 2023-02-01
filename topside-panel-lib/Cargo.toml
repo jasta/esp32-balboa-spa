@@ -19,3 +19,6 @@ cstr_core = "0.2.6"
 
 [dev-dependencies]
 env_logger = "0.10.0"
+ntest = "0.9.0"
+mock-mainboard-lib = { path = "../mock-mainboard-lib" }
+pipe = "0.4.0"

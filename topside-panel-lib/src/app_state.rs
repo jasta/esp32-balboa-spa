@@ -14,9 +14,12 @@ pub(crate) struct AppState {
 
 impl AppState {
   pub fn fast_snapshot(&self) -> FastSnapshot {
+    let status = self.topside_state_machine.context.status.as_ref()
+        .map(|r| r.message.clone());
     FastSnapshot {
       cts_state: self.cts_state_machine.state_kind(),
       topside_state: self.topside_state_machine.state_kind(),
+      status,
     }
   }
 
@@ -36,7 +39,7 @@ impl AppState {
       CtsStateKind::ChannelAssigned => {
         match self.topside_state_machine.state_kind() {
           TopsideStateKind::ReadingStatus => ConnectionState::Idle,
-          _ => ConnectionState::Negotiating,
+          _ => ConnectionState::Negotiated,
         }
       },
     }
@@ -82,6 +85,7 @@ impl AppState {
 pub struct FastSnapshot {
   cts_state: CtsStateKind,
   topside_state: TopsideStateKind,
+  status: Option<StatusUpdateMessage>,
 }
 
 struct DeviceMapper;

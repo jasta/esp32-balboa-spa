@@ -7,14 +7,14 @@ use packed_struct::prelude::*;
 const FAHRENHEIT_SCALE: f64 = 1.0;
 const CELSIUS_SCALE: f64 = 0.5;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProtocolTemperature {
   pub raw_scale: TemperatureScale,
   pub(crate) raw_value: u8,
   pub temperature: Temperature,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum TemperatureScale {
   Fahrenheit = 0,
   Celsius = 1,

@@ -120,7 +120,7 @@ impl From<&MessageType> for MessageTypeKind {
   }
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Copy, Clone)]
 pub enum Boolean {
   False = 0,
   True = 1,
@@ -172,7 +172,7 @@ pub enum ItemCode {
   HeatMode = 0x51,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusUpdateMessage {
   pub v1: StatusUpdateResponseV1,
   pub v2: Option<StatusUpdateResponseV2>,
@@ -202,7 +202,7 @@ impl TryFrom<&[u8]> for StatusUpdateMessage {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusUpdateResponseV1 {
   pub spa_state: ParsedEnum<SpaState, u8>,
   pub init_mode: ParsedEnum<InitializationMode, u8>,
@@ -314,7 +314,7 @@ pub enum SpaState {
   TestMode = 0x17,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Clone)]
 pub enum InitializationMode {
   Idle = 0x00,
   PrimingMode = 0x01,
@@ -325,14 +325,14 @@ pub enum InitializationMode {
   Stage3 = 0x05,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Clone)]
 pub enum HeatingMode {
   Ready = 0,
   Rest = 1,
   ReadyInRest = 3,
 }
 
-#[derive(FromPrimitive, ToPrimitive, Debug, Clone)]
+#[derive(FromPrimitive, ToPrimitive, Debug, PartialEq, Clone)]
 pub enum ReminderType {
   None = 0x00,
   CleanFilter = 0x04,
@@ -340,7 +340,7 @@ pub enum ReminderType {
   CheckSanitizer = 0x09,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum FilterMode {
   Off = 0,
   Cycle1 = 1,
@@ -348,27 +348,27 @@ pub enum FilterMode {
   Cycle1And2 = 3,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum TemperatureRange {
   Low = 0,
   High = 1,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum HeatingState {
   Off = 0,
   Heating = 1,
   HeatWaiting = 2,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum PumpStatus {
   Off = 0,
   Low = 1,
   High = 2,
 }
 
-#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, Copy, Clone)]
+#[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
 pub enum RelayStatus {
   Off = 0,
   On = 3,
@@ -546,11 +546,11 @@ impl TryFrom<&[u8]> for StatusUpdateResponseV1 {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusUpdateResponseV2 {
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusUpdateResponseV3 {
 }
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
 use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender, SendError, SyncSender, TryRecvError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SendError, SyncSender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
@@ -48,12 +48,15 @@ impl<R: Read, W: Write> TopsidePanel<R, W> {
       message_tx: commands_tx.clone(),
       framed_reader: self.framed_reader,
     };
+
+    let init_view_model = ViewModel::default();
+    let _ = events_tx.send(Event::ModelUpdated(init_view_model.clone()));
     let event_handler = EventHandler {
       commands_rx,
       events_tx,
       framed_writer: self.framed_writer,
       message_logger: MessageLogger::new(module_path!()),
-      last_view_model: None,
+      last_view_model: init_view_model,
       state: AppState::default(),
     };
 
@@ -85,7 +88,7 @@ impl Drop for ControlHandle {
 }
 
 pub struct ViewModelEventHandle {
-  events_rx: Receiver<Event>,
+  pub events_rx: Receiver<Event>,
 }
 
 impl ViewModelEventHandle {
@@ -154,7 +157,7 @@ struct EventHandler<W> {
   message_logger: MessageLogger,
   commands_rx: Receiver<Command>,
   events_tx: Sender<Event>,
-  last_view_model: Option<ViewModel>,
+  last_view_model: ViewModel,
   state: AppState,
 }
 
@@ -166,7 +169,10 @@ impl <W: Write + Send> EventHandler<W> {
       let result = match command {
         Command::ReceivedMessage(m) => self.handle_message(m),
         Command::ReadError(e) => Err(FatalError(e.to_string())),
-        Command::ButtonPressed(b) => Ok(self.handle_button(b)),
+        Command::ButtonPressed(b) => {
+            self.handle_button(b);
+            Ok(())
+        },
         Command::Shutdown => Err(ShutdownRequested),
       };
 
@@ -204,9 +210,9 @@ impl <W: Write + Send> EventHandler<W> {
 
     if self.state.fast_snapshot() != state_snapshot {
       let model = self.state.generate_view_model();
-      if self.last_view_model.as_ref() != Some(&model) {
+      if self.last_view_model != model {
         info!("Emitting new model: {model:?}");
-        self.last_view_model = Some(model.clone());
+        self.last_view_model = model.clone();
         let _ = self.events_tx.send(Event::ModelUpdated(model));
       }
     }

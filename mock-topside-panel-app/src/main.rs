@@ -1,12 +1,6 @@
 use std::thread;
 use std::time::Duration;
-use embedded_graphics::geometry::Size;
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, Window};
 use log::info;
-use lvgl::style::Style;
-use lvgl::{Color, Part, State, UI, Widget};
-use lvgl::widgets::Label;
 use common_lib::bus_transport::BusTransport;
 use common_lib::transport::StdTransport;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;

@@ -41,6 +41,12 @@ where
   }
 }
 
+impl<TYPE, PRIMITIVE: PartialEq> PartialEq for ParsedEnum<TYPE, PRIMITIVE> {
+  fn eq(&self, other: &Self) -> bool {
+    self.raw == other.raw
+  }
+}
+
 // This trait ensures that it is safe for any ParsedEnum primitive type to go to/from u32 without
 // loss.  Do not implement this trait for any type for which that isn't true!
 pub trait ProtocolPrimitive {

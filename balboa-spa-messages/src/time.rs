@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, PartialEq, Clone)]
 pub struct ProtocolTime {
   duration: Duration,
   hour: u8,

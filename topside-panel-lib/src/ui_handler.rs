@@ -2,11 +2,12 @@ use std::borrow::Borrow;
 use embedded_graphics::draw_target::DrawTarget;
 use lvgl::{Align, Color, LvResult, Part, State, UI, Widget};
 use lvgl::style::Style;
-use lvgl::widgets::Label;
+use lvgl::widgets::{Arc, Label};
 use std::time::{Duration, Instant};
 use std::thread;
 use cstr_core::{CStr, CString};
-use embedded_graphics::pixelcolor::{PixelColor};
+use embedded_graphics::pixelcolor::PixelColor;
+use crate::main_screen::MainScreen;
 use crate::topside_panel::{Button, ControlHandle, ViewModelEventHandle};
 
 pub trait LcdDevice {
@@ -56,18 +57,7 @@ where
     let mut ui = UI::init()?;
     ui.disp_drv_register(display)?;
 
-    let mut screen = ui.scr_act()?;
-
-    let mut screen_style = Style::default();
-    screen_style.set_bg_color(State::DEFAULT, Color::from_rgb((0, 0, 0)));
-    screen.add_style(Part::Main, screen_style)?;
-
-    let mut label = Label::new(&mut screen)?;
-    let mut label_style = Style::default();
-    label_style.set_text_color(State::DEFAULT, Color::from_rgb((200, 200, 200)));
-    label.add_style(Part::Main, label_style)?;
-    label.set_align(&mut screen, Align::InLeftMid, 0, 0)?;
-    label.set_text(CString::new("Hello...").unwrap().as_c_str());
+    let mut main = MainScreen::setup(&ui)?;
 
     let mut loop_started = Instant::now();
     loop {
@@ -88,7 +78,7 @@ where
       }
 
       if let Some(model) = self.model_events.try_recv_latest().unwrap() {
-        label.set_text(CString::new(format!("{:?}", model.conn_state)).unwrap().as_c_str());
+        main.bind(model)?;
       }
 
       thread::sleep(Duration::from_millis(20));

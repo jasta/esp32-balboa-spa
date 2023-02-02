@@ -16,6 +16,8 @@ lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 cstr_core = "0.2.6"
+cty = "0.2.1"
+num-traits = "0.2.15"
 
 [dev-dependencies]
 env_logger = "0.10.0"

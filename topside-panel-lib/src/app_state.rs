@@ -4,6 +4,7 @@ use std::time::Instant;
 use balboa_spa_messages::message_types::{Boolean, ConfigurationResponseMessage, HeatingState, PumpConfig, PumpStatus, RelayStatus, StatusUpdateMessage, StatusUpdateResponseV1};
 use crate::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
 use crate::cts_state_machine::{CtsStateKind, CtsStateMachine};
+use crate::temperature_model::{TemperatureModel, TemperatureRangeModel};
 use crate::view_model::{ConnectionState, DeviceCategory, DeviceLevel, DeviceModel, HotTubModel, ViewModel};
 
 #[derive(Default, Debug)]
@@ -56,8 +57,11 @@ impl AppState {
           let status_v1 = &status.message.v1;
           let current_temp = status_v1.current_temperature
               .clone()
-              .map(|t| t.temperature);
-          let set_temp = status_v1.set_temperature.clone().temperature;
+              .map(|t| t.into());
+          let set_temp = status_v1.set_temperature.clone().into();
+          let temp_range = TemperatureRangeModel::new(
+              status_v1.temperate_range.clone(),
+              status_v1.set_temperature.raw_scale);
           let heating_state = status_v1.heating_state.as_ref()
               .unwrap_or(&HeatingState::Off);
           let is_heating = match heating_state {
@@ -72,6 +76,7 @@ impl AppState {
             set_temp,
             is_heating,
             devices,
+            temp_range,
           };
           return Some(model);
         }

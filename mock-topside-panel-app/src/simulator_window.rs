@@ -14,8 +14,10 @@ impl LcdDevice for SimulatorDevice {
   type Window = SimulatorWindowProxy;
 
   fn setup(self) -> (Self::Display, Self::Window) {
-    let display = SimulatorDisplay::<Rgb565>::new(Size::new(480, 320));
-    let output_settings = OutputSettingsBuilder::new().build();
+    let display = SimulatorDisplay::<Rgb565>::new(Size::new(320, 240));
+    let output_settings = OutputSettingsBuilder::new()
+        .scale(2)
+        .build();
     let window = Window::new("Mock Topside Panel", &output_settings);
     (display, SimulatorWindowProxy { window })
   }

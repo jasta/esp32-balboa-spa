@@ -1,7 +1,10 @@
 use measurements::Temperature;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::time::Instant;
-use crate::topside_state_machine::TopsideContext;
+use balboa_spa_messages::message_types::TemperatureRange;
+use balboa_spa_messages::temperature::{ProtocolTemperature, TemperatureScale};
+use crate::temperature_model::{TemperatureModel, TemperatureRangeModel};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewModel {
@@ -29,9 +32,10 @@ pub enum ConnectionState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HotTubModel {
   pub received_at: Instant,
-  pub current_temp: Option<Temperature>,
-  pub set_temp: Temperature,
+  pub current_temp: Option<TemperatureModel>,
+  pub set_temp: TemperatureModel,
   pub is_heating: bool,
+  pub temp_range: TemperatureRangeModel,
   pub devices: HashMap<DeviceCategory, Vec<DeviceModel>>,
 }
 

@@ -8,3 +8,5 @@ pub mod ui_handler;
 mod topside_state_machine;
 mod app_state;
 mod channel_filter;
+mod main_screen;
+mod temperature_model;

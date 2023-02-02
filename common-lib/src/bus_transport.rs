@@ -8,6 +8,7 @@ use std::io;
 use std::io::{ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
+use log::{debug, error};
 use crate::transport::Transport;
 
 pub struct BusTransport<R, W> {
@@ -182,6 +183,8 @@ impl <R: Read> Read for BusTransportRx<R> {
           r => self.shared.buffer_append(buf, r),
         };
 
+        debug_result("raw_read", buf, &result);
+
         // We must hold this lock past when we take the shared write lock so that we can
         // gaurantee once a thread holds the raw reader/writer lock that the shared state
         // is fully consistent with any previous writes.
@@ -192,8 +195,18 @@ impl <R: Read> Read for BusTransportRx<R> {
     }
 
     // Didn't need the raw reader, read from the buffer...
-    self.shared.buffer_read(buf)
+    let result = self.shared.buffer_read(buf);
+    debug_result("buf_read", buf, &result);
+
+    result
   }
+}
+
+fn debug_result(label: &str, buf: &[u8], result: &io::Result<usize>) {
+  // if let Ok(n) = &result {
+  //   let x = &buf[0..*n];
+  //   debug!("{label}: {}", String::from_utf8(x.to_vec()).unwrap());
+  // }
 }
 
 pub struct BusTransportTx<W> {
@@ -210,6 +223,8 @@ impl <W: Write> Write for BusTransportTx<W> {
     // guarantee any ordering rules in the order of concurrent writes (as would be the case
     // if our bus was externally connected).
     drop(writer);
+
+    debug_result("raw_write", buf, &raw_result);
 
     self.shared.buffer_append(buf, raw_result)
   }
@@ -254,6 +269,35 @@ impl SharedState {
     }
   }
 
+  fn check_transition(other_buf: &mut VecDeque<u8>, user_buf: &[u8]) {
+    if let Some(last) = other_buf.pop_back() {
+      other_buf.push_back(last);
+      let first = user_buf[0];
+
+      let delta = i32::from(first) - i32::from(last);
+      if delta.abs() <= 1 {
+        return;
+      }
+
+      let valid_jumps = [
+        (b'9', b'a'),
+        (b'z', b'A'),
+        (b'Z', b'0'),
+      ];
+
+      for (valid_first, valid_last) in valid_jumps {
+        let first_match = first == valid_first;
+        let last_match = last == valid_last;
+
+        if first_match ^ last_match {
+          let firstc = char::from(first);
+          let lastc = char::from(last);
+          error!("detected mismatch: {firstc} vs {lastc}!");
+        }
+      }
+    }
+  }
+
   fn set_error(&mut self, error: RxTxError) {
     self.got_error = Some(error);
   }
@@ -286,8 +330,13 @@ impl From<RxTxError> for io::Error {
 
 #[cfg(test)]
 mod tests {
+  use std::fmt::{Display, Formatter};
   use super::*;
   use std::io::{BufRead, BufReader, Write};
+  use std::sync::mpsc;
+  use std::sync::mpsc::{Receiver, sync_channel, SyncSender};
+  use std::thread;
+  use anyhow::anyhow;
   use log::{debug, LevelFilter};
   use crate::transport::{StdTransport, Transport};
   use ntest::timeout;
@@ -353,13 +402,101 @@ mod tests {
     Ok(())
   }
 
+  #[test]
+  #[timeout(5000)]
+  fn stress_test() -> anyhow::Result<()> {
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .is_test(true)
+        .format(|buf, record| {
+          let ts = buf.timestamp_micros();
+          writeln!(
+            buf,
+            "{}: {}: {:?}: {}: {}",
+            ts,
+            record.metadata().target(),
+            std::thread::current().id(),
+            buf.default_level_style(record.level())
+                .value(record.level()),
+            record.args()
+          )
+        })
+        .init();
+
+//    let ((cx_in, s_out), (s_in, cx_out)) = (pipe::pipe(), pipe::pipe());
+    let ((cx_in, s_out), (s_in, cx_out)) = (simple_pipe(), simple_pipe());
+    let transport = StdTransport::new(cx_in, cx_out);
+
+    let num_transports = 3;
+
+    let mut harness = BusTestHarness::new();
+    harness.add_splits(s_in, s_out);
+
+    let original = BusTransport::new(transport, 32);
+    for _ in 2..num_transports {
+      harness.add_transport(original.clone());
+    }
+    harness.add_transport(original);
+    assert_eq!(harness.pairs.len(), num_transports);
+
+    harness.rw_stress(48, 4)?;
+    Ok(())
+  }
+
+  fn simple_pipe() -> (SimplePipeReader, SimplePipeWriter) {
+    let (tx, rx) = sync_channel(1 * 1024 * 1024);
+    (SimplePipeReader { rx }, SimplePipeWriter { tx })
+  }
+
+  struct SimplePipeReader {
+    rx: Receiver<SimpleEvent>,
+  }
+
+  impl Read for SimplePipeReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+      if buf.is_empty() {
+        return Ok(0);
+      }
+      let event = self.rx.recv()
+          .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "sender side closed"))?;
+      match event {
+        SimpleEvent::WriteChar(b) => {
+          buf[0] = b;
+          Ok(1)
+        }
+      }
+    }
+  }
+
+  struct SimplePipeWriter {
+    tx: SyncSender<SimpleEvent>
+  }
+
+  impl Write for SimplePipeWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+      for b in buf {
+        self.tx.send(SimpleEvent::WriteChar(*b))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "reader side closed"))?;
+      }
+      Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+      Ok(())
+    }
+  }
+
+  pub enum SimpleEvent {
+    WriteChar(u8),
+  }
+
   struct BusTestHarness<'d> {
     pairs: Vec<BusTestPair<'d>>,
   }
 
   struct BusTestPair<'d> {
     index: PairIndex,
-    reader: Box<dyn BusTestReadline + 'd>,
+    reader: Box<dyn BusTestReadline + Send + 'd>,
     writer: Box<dyn BusTestWriteline + Send + 'd>,
   }
 
@@ -368,7 +505,7 @@ mod tests {
   }
 
   struct HomogenousReadline<'d, I> {
-    reader: Box<dyn Iterator<Item=I> + 'd>,
+    reader: Box<dyn Iterator<Item=I> + Send + 'd>,
   }
 
   impl <'d> BusTestReadline for HomogenousReadline<'d, io::Result<String>>
@@ -402,14 +539,14 @@ mod tests {
     pub fn add_transport<T, R, W>(&mut self, transport: T) -> PairIndex
     where
         T: Transport<R, W>,
-        R: Read + 'd,
+        R: Read + Send + 'd,
         W: Write + Send + 'd
     {
       let (rx, tx) = transport.split();
       self.add_splits(rx, tx)
     }
 
-    pub fn add_splits<R: Read + 'd, W: Write + Send + 'd>(&mut self, rx: R, tx: W) -> PairIndex {
+    pub fn add_splits<R: Read + Send + 'd, W: Write + Send + 'd>(&mut self, rx: R, tx: W) -> PairIndex {
       let reader = Box::new(HomogenousReadline {
         reader: Box::new(BufReader::new(rx).lines()),
       });
@@ -446,8 +583,84 @@ mod tests {
         out_handle.join().unwrap()
       }).unwrap()
     }
+
+    pub fn rw_stress(&mut self, block_size: usize, num_blocks_per: usize) -> anyhow::Result<()> {
+      let data = gen_data(block_size);
+      let num_other_writers = self.pairs.len().saturating_sub(1);
+      crossbeam::thread::scope(|s| {
+        let mut threads = vec![];
+        for pair in self.pairs.iter_mut() {
+          let reader = &mut pair.reader;
+          let writer = &mut pair.writer;
+          let writer_thread = s.spawn(|_| {
+            for i in 0..num_blocks_per {
+              let block = Block(pair.index.0, i);
+              debug!("[{}] => {block}...", pair.index);
+              writer.write_line(data.as_str())?;
+              debug!("[{}] => sent: {block}", pair.index);
+            }
+            debug!("[{}] => FINISHED Writer #{}!", pair.index, pair.index);
+            Ok(())
+          });
+          let reader_thread = s.spawn(|_| {
+            for other in 0..num_other_writers {
+              for i in 0..num_blocks_per {
+                let block = Block(other, i);
+                debug!("[{}] <= {block}...", pair.index);
+                let got_data = reader.next_line()
+                    .unwrap_or_else(|| {
+                      Err(
+                        io::Error::new(
+                          ErrorKind::UnexpectedEof,
+                          format!("pair #{}, block {block}", pair.index)))
+                    })?;
+                debug!("[{}] <= recv: {block}", pair.index);
+                if got_data != data {
+                  return Err(anyhow!("[{}] Mismatch @ block {block}: got={got_data}, expected={data}", pair.index));
+                }
+              }
+            }
+            debug!("[{}] <= FINISHED Reader #{}!", pair.index, pair.index);
+            Ok(())
+          });
+
+          threads.push(writer_thread);
+          threads.push(reader_thread);
+        }
+
+        for thread in threads {
+          thread.join().unwrap()?;
+        }
+
+        Ok(())
+      }).unwrap()
+    }
+  }
+
+  fn gen_data(len: usize) -> String {
+    let data_chars = ('0'..='9')
+        .chain('a'..='z')
+        .chain('A'..='Z')
+        .take(len);
+    let data = String::from_iter(data_chars);
+    assert_eq!(data.len(), len);
+    data
+  }
+
+  struct Block(usize, usize);
+
+  impl Display for Block {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+      write!(f, "#{},{}", self.0, self.1)
+    }
   }
 
   #[derive(Debug, Copy, Clone)]
   struct PairIndex(usize);
+
+  impl Display for PairIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+      write!(f, "{}", self.0)
+    }
+  }
 }

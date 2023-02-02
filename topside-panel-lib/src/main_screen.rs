@@ -71,6 +71,7 @@ impl TemperatureWidget {
     let mut action_label = Label::new(&mut linemeter)?;
     action_label.add_style(Part::Main, action_style.clone())?;
     action_label.set_align(&mut main_label.large_label, Align::OutTopMid, 0, 0)?;
+    obj_set_auto_realign(&mut action_label, true)?;
 
     Ok(Self {
       linemeter,
@@ -123,10 +124,12 @@ impl TemperatureLabel {
     let mut large_label = Label::new(parent)?;
     large_label.add_style(Part::Main, large_style.clone())?;
     large_label.set_align(parent, Align::Center, 0, 0)?;
+    obj_set_auto_realign(&mut large_label, true)?;
 
     let mut small_label = Label::new(parent)?;
     small_label.add_style(Part::Main, small_style.clone())?;
     small_label.set_align(&mut large_label, Align::OutRightTop, 0, 0)?;
+    obj_set_auto_realign(&mut small_label, true)?;
     Ok(Self {
       large_label,
       small_label,
@@ -256,6 +259,18 @@ fn style_set_text_font(style: &mut Style, state: State, value: Font) {
       value.raw() as *mut cty::c_void,
     );
   }
+}
+
+fn obj_set_auto_realign<C>(obj: &mut C, value: bool) -> LvResult<()>
+where
+    C: NativeObject,
+{
+  unsafe {
+    lvgl_sys::lv_obj_set_auto_realign(
+      obj.raw()?.as_mut(),
+      value);
+  }
+  Ok(())
 }
 
 pub enum Font {

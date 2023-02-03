@@ -199,11 +199,7 @@ impl ReadListeners {
             .as_ref()
             .map(|x| x.to_vec())
             .map_err(copy_io_error);
-        let result = listener.tx.send(ReadEvent(result_owned));
-        if result.is_err() {
-          debug!("wut...");
-        }
-        result.is_ok()
+        listener.tx.send(ReadEvent(result_owned)).is_ok()
       } else {
         true
       }

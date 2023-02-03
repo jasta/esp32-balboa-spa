@@ -148,13 +148,16 @@ where
     W: Write,
 {
   fn split(self) -> (BusTransportRx<R>, BusTransportTx<W>) {
+    // We need an extra Arc layer here so that both rx and tx are dropped before we can
+    // drop the SharedWrapper and remove this client index.
+    let shared = Arc::new(self.shared);
     let rx = BusTransportRx {
       reader: self.raw_reader,
-      shared: self.shared.clone(),
+      shared: shared.clone(),
     };
     let tx = BusTransportTx {
       writer: self.raw_writer,
-      shared: self.shared,
+      shared,
     };
     (rx, tx)
   }
@@ -162,7 +165,7 @@ where
 
 pub struct BusTransportRx<R> {
   reader: Arc<Mutex<R>>,
-  shared: SharedWrapper,
+  shared: Arc<SharedWrapper>,
 }
 
 pub type RxEvent = io::Result<Vec<u8>>;
@@ -212,7 +215,7 @@ fn debug_result(label: &str, buf: &[u8], result: &io::Result<usize>) {
 
 pub struct BusTransportTx<W> {
   writer: Arc<Mutex<W>>,
-  shared: SharedWrapper,
+  shared: Arc<SharedWrapper>,
 }
 
 impl <W: Write> Write for BusTransportTx<W> {

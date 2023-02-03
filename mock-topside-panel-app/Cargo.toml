@@ -16,6 +16,3 @@ topside-panel-lib = { path = "../topside-panel-lib" }
 pipe = "0.4.0"
 embedded-graphics = "0.7.1"
 embedded-graphics-simulator = "0.4.0"
-lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
-lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
-lvgl-codegen = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }

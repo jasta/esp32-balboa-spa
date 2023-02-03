@@ -1,1 +1,1 @@
-DEP_LV_CONFIG_PATH = { value = ".", relative = true }
+DEP_LV_CONFIG_PATH = { value = "topside-panel-lib", relative = true }

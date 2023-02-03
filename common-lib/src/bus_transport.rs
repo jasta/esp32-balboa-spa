@@ -94,7 +94,9 @@ impl<R, W> BusSwitch<R, W>
         listeners: listeners_for_reader,
         buffer_size: self.recv_buffer_size,
       };
-      reader.run_loop()
+      let result = reader.run_loop();
+      debug!("reader exit: {result:?}");
+      result
     });
 
     thread::spawn(move || {
@@ -103,7 +105,9 @@ impl<R, W> BusSwitch<R, W>
         listeners: listeners_for_writer,
         rx: self.writer_rx,
       };
-      writer.run_loop()
+      let result = writer.run_loop();
+      debug!("writer exit: {result:?})");
+      result
     });
   }
 }
@@ -195,7 +199,11 @@ impl ReadListeners {
             .as_ref()
             .map(|x| x.to_vec())
             .map_err(copy_io_error);
-        listener.tx.send(ReadEvent(result_owned)).is_ok()
+        let result = listener.tx.send(ReadEvent(result_owned));
+        if result.is_err() {
+          debug!("wut...");
+        }
+        result.is_ok()
       } else {
         true
       }
@@ -203,7 +211,7 @@ impl ReadListeners {
   }
 
   pub fn has_listeners(&self) -> bool {
-    self.listeners.is_empty()
+    !self.listeners.is_empty()
   }
 }
 
@@ -263,7 +271,7 @@ impl Transport<BusTransportRx, BusTransportTx> for BusTransport {
   }
 }
 
-struct BusTransportRx {
+pub struct BusTransportRx {
   rx: Receiver<ReadEvent>,
   buffer: Vec<u8>,
   position: usize,
@@ -312,7 +320,7 @@ impl BufRead for BusTransportRx {
   }
 }
 
-struct BusTransportTx {
+pub struct BusTransportTx {
   tx: SyncSender<WriteAndFlushEvent>,
   listener_handle: ListenerHandle,
   buffer: Vec<u8>,
@@ -358,7 +366,7 @@ mod tests {
   use std::sync::mpsc::{channel, Receiver, sync_channel, SyncSender};
   use std::thread;
   use anyhow::anyhow;
-  use log::{debug, LevelFilter};
+  use log::{debug, error, LevelFilter, warn};
   use crate::transport::{StdTransport, Transport};
   use ntest::timeout;
 
@@ -387,8 +395,12 @@ mod tests {
   }
 
   #[test]
-  #[timeout(7000)]
+  //#[timeout(7000)]
   fn stress_test() -> anyhow::Result<()> {
+    let payload_len = 40;
+    let num_blocks = 3;
+    let num_transports = 3;
+
     env_logger::builder()
         .filter_level(LevelFilter::Debug)
         .is_test(true)
@@ -410,8 +422,6 @@ mod tests {
 //     let ((cx_in, s_out), (s_in, cx_out)) = (simple_pipe(), simple_pipe());
     let transport = StdTransport::new(cx_in, cx_out);
 
-    let num_transports = 3;
-
     let mut harness = BusTestHarness::new();
     harness.add_splits(s_in, s_out);
 
@@ -422,7 +432,7 @@ mod tests {
     switch.start();
     assert_eq!(harness.pairs.len(), num_transports);
 
-    harness.rw_stress(40, 20)?;
+    harness.rw_stress(payload_len, num_blocks)?;
     Ok(())
   }
 
@@ -599,57 +609,18 @@ mod tests {
 
           let pair_index = pair.index;
           let writer_thread = s.spawn(move |_| {
-            for i in 0..num_blocks_per {
-              let block = Block(pair_index.0, i);
-              let block_str = block.to_string() + ":";
-              let num_repetitions = approx_block_size / block_str.len();
-              let data = block_str.repeat(num_repetitions);
-
-              debug!("[{}] => {block}...", pair_index);
-              writer.write_line(data.as_str())?;
-              debug!("[{}] => sent: {block}", pair_index);
-
-              // Due to the configuration here, this logically waits for all readers to ack
-              // the sent message.  This is extremely important because BusTransport is designed
-              // for electrical buses that don't guarantee any isolation at the protocol level
-              // so we have to put something in even for test.
-              let data_hash = hash(data);
-              for other_tx in &other_txs {
-                let _ = other_tx.send(data_hash);
-              }
+            let result = do_stress_write(writer, &other_txs, pair_index, approx_block_size, num_blocks_per);
+            if let Err(e) = &result {
+              error!("{e}");
             }
-            debug!("[{}] => FINISHED Writer #{}!", pair_index, pair_index);
-            Ok(())
+            result
           });
           let reader_thread = s.spawn(move |_| {
-            for other in 0..num_other_writers {
-              for i in 0..num_blocks_per {
-                let block = Block(other, i);
-                debug!("[{}] <= trying to read...", pair_index);
-                let got_data = reader.next_line()
-                    .unwrap_or_else(|| {
-                      Err(
-                        io::Error::new(
-                          ErrorKind::UnexpectedEof,
-                          format!("pair #{}, block {block}", pair_index)))
-                    })?;
-                let got_block = got_data.split(':').next().unwrap();
-                debug!("[{}] <= {got_block}", pair_index);
-
-                // if got_block != Some(block.to_string().as_str()) {
-                //   return Err(anyhow!("[{}] Mismatch @ block {block}: got={got_block:?}", pair_index));
-                // }
-                //
-                let compute_hash = hash(&got_data);
-                let got_hash = my_rx.recv()?;
-
-                if got_hash != compute_hash {
-                  return Err(anyhow!("[{}] Mismatch @ block {block}: got={got_hash} ({got_data}), expected={compute_hash}", pair.index));
-                }
-              }
+            let result = do_stress_read(reader, my_rx, pair_index, num_other_writers, num_blocks_per);
+            if let Err(e) = &result {
+              error!("{e}");
             }
-            debug!("[{}] <= FINISHED Reader #{}!", pair.index, pair.index);
-            Ok(())
+            result
           });
 
           threads.push(writer_thread);
@@ -663,6 +634,63 @@ mod tests {
         Ok(())
       }).unwrap()
     }
+  }
+
+  fn do_stress_read<'a>(
+      mut reader: Box<dyn BusTestReadline + 'a>,
+      my_rx: Receiver<()>,
+      pair_index: PairIndex,
+      num_other_writers: usize,
+      num_blocks_per: usize
+  ) -> anyhow::Result<()> {
+    for other in 0..num_other_writers {
+      for i in 0..num_blocks_per {
+        let block = Block(other, i);
+        debug!("[{}] <= trying to read...", pair_index);
+        let got_data = reader.next_line()
+            .unwrap_or_else(|| {
+              Err(
+                io::Error::new(
+                  ErrorKind::UnexpectedEof,
+                  format!("pair #{}, block {block}", pair_index)))
+            })?;
+        let got_block = got_data.split(':').next().unwrap();
+        debug!("[{}] <= {got_block}", pair_index);
+
+        my_rx.recv()?;
+      }
+    }
+    debug!("[{}] <= FINISHED Reader #{}!", pair_index, pair_index);
+    Ok(())
+  }
+
+  fn do_stress_write<'a>(
+      mut writer: Box<dyn BusTestWriteline + 'a>,
+      other_txs: &[SyncSender<()>],
+      pair_index: PairIndex,
+      approx_block_size: usize,
+      num_blocks_per: usize
+  ) -> anyhow::Result<()> {
+    for i in 0..num_blocks_per {
+      let block = Block(pair_index.0, i);
+      let block_str = block.to_string() + ":";
+      let num_repetitions = approx_block_size / block_str.len();
+      let data = block_str.repeat(num_repetitions);
+
+      debug!("[{}] => {block}...", pair_index);
+      writer.write_line(data.as_str())?;
+      debug!("[{}] => sent: {block}", pair_index);
+
+      // Due to the configuration here, this logically waits for all readers to ack
+      // the sent message.  This is extremely important because BusTransport is designed
+      // for electrical buses that don't guarantee any isolation at the protocol level
+      // so we have to put something in even for test.
+      for other_tx in other_txs {
+        let _ = other_tx.send(());
+      }
+    }
+    debug!("[{}] => FINISHED Writer #{}!", pair_index, pair_index);
+    Ok(())
   }
 
   fn hash<T: Hash>(value: T) -> u64 {

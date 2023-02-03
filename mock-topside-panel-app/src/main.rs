@@ -14,7 +14,6 @@ use crate::simulator_window::SimulatorDevice;
 mod simulator_window;
 
 const GRACEFUL_SHUTDOWN_PERIOD: Duration = Duration::from_secs(3);
-const BUS_BUFFER_SIZE: usize = 128;
 
 fn main() -> anyhow::Result<()> {
   env_logger::builder()
@@ -38,12 +37,13 @@ fn main() -> anyhow::Result<()> {
       .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX)
       .set_init_delay(Duration::from_secs(5));
 
-  let bus_transport = BusTransport::new(
-    StdTransport::new(client_in, client_out),
-    BUS_BUFFER_SIZE);
+  let mut bus_switch = BusTransport::new_switch(
+    StdTransport::new(client_in, client_out));
 
-  let topside = TopsidePanel::new(bus_transport.clone());
-  let wifi_module = WifiModule::new(bus_transport);
+  let topside = TopsidePanel::new(bus_switch.new_connection());
+  let wifi_module = WifiModule::new(bus_switch.new_connection());
+
+  bus_switch.start();
 
   let (hottub_handle, hottub_runner) = main_board.into_runner();
   let hottub_thread = thread::Builder::new()

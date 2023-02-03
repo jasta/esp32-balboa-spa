@@ -5,8 +5,10 @@ use crate::main_board::HandlingError;
 
 /// Number of _consecutive_ failures to respond to ClearToSend before we remove the channel and
 /// allow it to be reallocated.  Note that the official main board does not support this feature
-/// but it's very useful for testing.
-const DEFAULT_MAX_CLEAR_TO_SEND_FAILURES: usize = 20;
+/// but it's very useful for testing.  Must be a very large number because the protocol is lossy
+/// and retransmits of certain messages can take up to 1s with dozens of messages passing in that
+/// time.
+const DEFAULT_MAX_CLEAR_TO_SEND_FAILURES: usize = 160;
 
 #[derive(Debug)]
 pub(crate) struct ChannelTracker {

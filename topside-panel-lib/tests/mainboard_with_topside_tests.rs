@@ -6,7 +6,7 @@ use common_lib::transport::StdTransport;
 use topside_panel_lib::network::topside_panel::TopsidePanel;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
-use topside_panel_lib::view_model::{ConnectionState, ViewModel};
+use topside_panel_lib::model::view_model::{ConnectionState, ViewModel};
 use topside_panel_lib::model::view_model_event_handle::{Event, ViewModelEventHandle};
 
 #[test]

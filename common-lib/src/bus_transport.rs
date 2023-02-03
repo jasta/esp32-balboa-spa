@@ -89,6 +89,7 @@ impl SharedWrapper {
 
   pub fn buffer_append(&self, buf: &[u8], from_result: io::Result<usize>) -> io::Result<usize> {
     let mut state = self.state.write().map_err(lock_io_err)?;
+    state.check_error()?;
     state.handle_result(self.my_index, buf, from_result)
   }
 

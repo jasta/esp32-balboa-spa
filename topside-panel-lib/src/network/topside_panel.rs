@@ -16,14 +16,16 @@ use balboa_spa_messages::message_types::{ConfigurationResponseMessage, Informati
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
-use crate::app_state::AppState;
-use crate::channel_filter::ChannelFilter;
-use crate::topside_state_machine::{StateReadingStatus, TopsideStateKind, TopsideStateMachine};
-use crate::cts_state_machine::{CtsStateKind, CtsStateMachine};
-use crate::handling_error::HandlingError;
-use crate::handling_error::HandlingError::FatalError;
-use crate::message_state_machine::MessageHandlingError;
-use crate::view_model::ViewModel;
+use crate::network::app_state::AppState;
+use crate::network::channel_filter::ChannelFilter;
+use crate::network::topside_state_machine::{StateReadingStatus, TopsideStateKind, TopsideStateMachine};
+use crate::network::cts_state_machine::{CtsStateKind, CtsStateMachine};
+use crate::network::handling_error::HandlingError;
+use crate::network::handling_error::HandlingError::FatalError;
+use crate::network::message_state_machine::MessageHandlingError;
+use crate::model::view_model::ViewModel;
+use crate::model::view_model_event_handle::{Event, ViewModelEventHandle};
+use crate::model::button::Button;
 
 pub struct TopsidePanel<R, W> {
   framed_reader: FramedReader<R>,
@@ -84,25 +86,6 @@ impl ControlHandle {
 impl Drop for ControlHandle {
   fn drop(&mut self) {
     self.request_shutdown();
-  }
-}
-
-pub struct ViewModelEventHandle {
-  pub events_rx: Receiver<Event>,
-}
-
-impl ViewModelEventHandle {
-  pub fn try_recv_latest(&self) -> Result<Option<ViewModel>, TryRecvError> {
-    let mut latest = None;
-    loop {
-      match self.events_rx.try_recv() {
-        Ok(Event::ModelUpdated(model)) => {
-          latest = Some(model);
-        },
-        Err(TryRecvError::Empty) => return Ok(latest),
-        Err(e) => return Err(e),
-      }
-    }
   }
 }
 
@@ -228,23 +211,11 @@ impl <W: Write + Send> EventHandler<W> {
 }
 
 #[derive(Debug)]
-pub enum Command {
+enum Command {
   ReceivedMessage(Message),
   ReadError(anyhow::Error),
   ButtonPressed(Button),
   Shutdown,
-}
-
-#[derive(Debug, Clone)]
-pub enum Button {
-  Up,
-  Down,
-  Jets1,
-  Light,
-}
-
-pub enum Event {
-  ModelUpdated(ViewModel),
 }
 
 impl From<MessageHandlingError> for HandlingError {

@@ -2,10 +2,10 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Instant;
 use balboa_spa_messages::message_types::{Boolean, ConfigurationResponseMessage, HeatingState, PumpConfig, PumpStatus, RelayStatus, StatusUpdateMessage, StatusUpdateResponseV1};
-use crate::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
-use crate::cts_state_machine::{CtsStateKind, CtsStateMachine};
-use crate::temperature_model::{TemperatureModel, TemperatureRangeModel};
-use crate::view_model::{ConnectionState, DeviceCategory, DeviceLevel, DeviceModel, HotTubModel, ViewModel};
+use crate::network::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
+use crate::network::cts_state_machine::{CtsStateKind, CtsStateMachine};
+use crate::model::temperature_model::{TemperatureModel, TemperatureRangeModel};
+use crate::model::view_model::{ConnectionState, DeviceCategory, DeviceLevel, DeviceModel, HotTubModel, ViewModel};
 
 #[derive(Default, Debug)]
 pub(crate) struct AppState {

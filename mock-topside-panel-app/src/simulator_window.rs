@@ -3,8 +3,10 @@ use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::geometry::Size;
 use embedded_graphics_simulator::sdl2::Keycode;
 use log::info;
-use topside_panel_lib::topside_panel::Button;
-use topside_panel_lib::ui_handler::{LcdDevice, UserInputEvent, WindowProxy};
+use topside_panel_lib::model::button::Button;
+use topside_panel_lib::view::lcd_device::LcdDevice;
+use topside_panel_lib::view::user_input_event::UserInputEvent;
+use topside_panel_lib::view::window_proxy::WindowProxy;
 
 #[derive(Default)]
 pub struct SimulatorDevice;

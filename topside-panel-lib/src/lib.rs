@@ -1,12 +1,3 @@
-pub mod topside_panel;
-pub mod cts_state_machine;
-pub mod client_ident;
-mod handling_error;
-pub mod view_model;
-pub mod message_state_machine;
-pub mod ui_handler;
-mod topside_state_machine;
-mod app_state;
-mod channel_filter;
-mod main_screen;
-mod temperature_model;
+pub mod model;
+pub mod view;
+pub mod network;

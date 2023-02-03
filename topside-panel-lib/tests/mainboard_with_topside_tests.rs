@@ -3,10 +3,11 @@ use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use log::LevelFilter;
 use common_lib::transport::StdTransport;
-use topside_panel_lib::topside_panel::{Event, TopsidePanel, ViewModelEventHandle};
+use topside_panel_lib::network::topside_panel::TopsidePanel;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::view_model::{ConnectionState, ViewModel};
+use topside_panel_lib::model::view_model_event_handle::{Event, ViewModelEventHandle};
 
 #[test]
 fn test_get_model_updates() -> anyhow::Result<()> {

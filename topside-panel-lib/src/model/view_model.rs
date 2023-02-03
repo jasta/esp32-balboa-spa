@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 use std::time::Instant;
 use balboa_spa_messages::message_types::TemperatureRange;
 use balboa_spa_messages::temperature::{ProtocolTemperature, TemperatureScale};
-use crate::temperature_model::{TemperatureModel, TemperatureRangeModel};
+use crate::model::temperature_model::{TemperatureModel, TemperatureRangeModel};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewModel {

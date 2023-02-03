@@ -2,8 +2,8 @@ use std::time::Instant;
 use log::{debug, info};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
-use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
-use crate::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
+use crate::network::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
+use crate::network::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 
 pub type TopsideStateMachine = MessageStateMachine<StateWaitingForCts>;
 

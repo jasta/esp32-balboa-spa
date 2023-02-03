@@ -7,7 +7,7 @@ use log::debug;
 use balboa_spa_messages::message::Message;
 use std::fmt::{Debug, Formatter};
 use common_lib::message_logger::{MessageDirection, MessageLogger};
-use crate::channel_filter::{ChannelFilter, FilterResult};
+use crate::network::channel_filter::{ChannelFilter, FilterResult};
 
 #[derive(Debug)]
 pub struct MessageStateMachine<IS: MessageState> {

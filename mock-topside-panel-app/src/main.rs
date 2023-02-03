@@ -5,10 +5,10 @@ use common_lib::bus_transport::BusTransport;
 use common_lib::transport::StdTransport;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
-use topside_panel_lib::topside_panel::TopsidePanel;
+use topside_panel_lib::network::topside_panel::TopsidePanel;
 use wifi_module_lib::wifi_module::WifiModule;
-use topside_panel_lib::ui_handler::UiHandler;
 use std::io::Write;
+use topside_panel_lib::view::ui_handler::UiHandler;
 use crate::simulator_window::SimulatorDevice;
 
 mod simulator_window;

@@ -7,30 +7,18 @@ use std::time::{Duration, Instant};
 use std::thread;
 use cstr_core::{CStr, CString};
 use embedded_graphics::pixelcolor::PixelColor;
-use crate::main_screen::MainScreen;
-use crate::topside_panel::{Button, ControlHandle, ViewModelEventHandle};
-
-pub trait LcdDevice {
-  type Display: DrawTarget;
-  type Window: WindowProxy<Self::Display>;
-
-  fn setup(self) -> (Self::Display, Self::Window);
-}
+use crate::view::main_screen::MainScreen;
+use crate::network::topside_panel::ControlHandle;
+use crate::view::lcd_device::LcdDevice;
+use crate::view::user_input_event::UserInputEvent;
+use crate::view::window_proxy::WindowProxy;
+use crate::model::view_model_event_handle::ViewModelEventHandle;
+use crate::model::button::Button;
 
 pub struct UiHandler<DEV> {
   lcd_device: DEV,
   control_handle: ControlHandle,
   model_events: ViewModelEventHandle,
-}
-
-pub trait WindowProxy<D> {
-  fn events(&mut self) -> Vec<UserInputEvent>;
-  fn update(&mut self, display: &D);
-}
-
-pub enum UserInputEvent {
-  Quit,
-  ButtonPressed(Button),
 }
 
 impl<DEV> UiHandler<DEV>

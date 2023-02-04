@@ -342,6 +342,7 @@ impl<W: Write + Send> EventHandler<W> {
       }
       MessageType::SetTemperatureRequest { temperature } => {
         info!("Got set temp request: temperature={temperature:?}");
+        self.state.mock_spa.settings.adjust_temperature(temperature);
         None
       }
       MessageType::SetTimeRequest { time } => {

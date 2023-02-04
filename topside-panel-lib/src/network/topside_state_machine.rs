@@ -1,6 +1,6 @@
+use std::collections::VecDeque;
 use std::time::Instant;
 use log::{debug, info};
-use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
 use crate::network::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
 use crate::network::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
@@ -12,6 +12,13 @@ pub struct TopsideContext {
   pub info: Option<InformationResponseMessage>,
   pub config: Option<ConfigurationResponseMessage>,
   pub status: Option<ReceivedStatusMessage>,
+  pub outbound_messages: VecDeque<MessageType>,
+}
+
+impl TopsideStateMachine {
+  pub fn enqueue_message(&mut self, mt: MessageType) {
+    self.context.outbound_messages.push_back(mt);
+  }
 }
 
 #[derive(Debug)]
@@ -120,7 +127,9 @@ impl MessageState for StateReadingStatus {
   fn handle_message(&self, args: &mut StateArgs<Self::Kind, Self::Context>) -> SmResult {
     match args.mt {
       MessageType::ClearToSend() => {
-        SendReply(MessageType::NothingToSend().to_message(*args.channel))
+        let reply = args.context.outbound_messages.pop_front()
+            .unwrap_or_else(|| MessageType::NothingToSend());
+        SendReply(reply.to_message(*args.channel))
       }
       MessageType::StatusUpdate(m) => {
         info!("Got status update: {m:?}");

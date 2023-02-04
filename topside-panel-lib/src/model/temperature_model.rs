@@ -1,3 +1,4 @@
+use log::info;
 use balboa_spa_messages::message_types::TemperatureRange;
 use balboa_spa_messages::temperature::{ProtocolTemperature, TemperatureScale};
 use measurements::Temperature;
@@ -80,7 +81,7 @@ impl TemperatureDisplay {
         let rounded = (value * 2.0).round() / 2.0;
         (
           rounded.trunc().to_u16().unwrap(),
-          Some(rounded.fract().to_u8().unwrap())
+          Some((rounded.fract() * 10.0).round().to_u8().unwrap())
         )
       }
     };

@@ -2,6 +2,7 @@ use lvgl::{Align, LvResult, NativeObject, Part, State, Widget};
 use lvgl::style::Style;
 use lvgl::widgets::{Label, Linemeter};
 use cstr_core::CString;
+use log::info;
 use crate::model::temperature_model::TemperatureDisplay;
 use crate::view::color_util::hex_color;
 use crate::view::font::Font;
@@ -82,6 +83,7 @@ impl PaletteAware for TemperatureWidget {
 }
 
 struct TemperatureLabel {
+  current_value: Option<TemperatureDisplay>,
   large_label: Label,
   small_label: Label,
 }
@@ -105,20 +107,26 @@ impl TemperatureLabel {
     small_label.set_align(&mut large_label, Align::OutRightTop, 0, 0)?;
     obj_set_auto_realign(&mut small_label, true)?;
     Ok(Self {
+      current_value: None,
       large_label,
       small_label,
     })
   }
 
   pub fn set_temperature(&mut self, display: TemperatureDisplay) -> LvResult<()> {
-    self.large_label.set_text(
-      CString::new(display.big_part.to_string()).unwrap().as_c_str())?;
+    if self.current_value != Some(display) {
+      self.current_value = Some(display);
 
-    let little_part = display.little_part.map(|v| {
-      v.to_string()
-    }).unwrap_or_else(|| "".to_owned());
-    self.small_label.set_text(CString::new(little_part).unwrap().as_c_str())?;
+      info!("UI temp: {display:?}");
 
+      self.large_label.set_text(
+        CString::new(display.big_part.to_string()).unwrap().as_c_str())?;
+
+      let little_part = display.little_part.map(|v| {
+        v.to_string()
+      }).unwrap_or_else(|| "".to_owned());
+      self.small_label.set_text(CString::new(little_part).unwrap().as_c_str())?;
+    }
     Ok(())
   }
 }

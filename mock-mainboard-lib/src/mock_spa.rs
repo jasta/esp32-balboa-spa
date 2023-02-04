@@ -1,7 +1,7 @@
 use chrono::{Timelike, Utc};
 use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, PumpConfig, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
 use balboa_spa_messages::parsed_enum::ParsedEnum;
-use balboa_spa_messages::temperature::{ProtocolTemperature, Temperature, TemperatureScale};
+use balboa_spa_messages::temperature::{ProtocolTemperature, SetTemperature, Temperature, TemperatureScale};
 use balboa_spa_messages::time::ProtocolTime;
 
 #[derive(Debug)]
@@ -216,6 +216,11 @@ pub enum CurrentTemperatureState {
 }
 
 impl UserSettings {
+  pub fn adjust_temperature(&mut self, value: SetTemperature) {
+    let new_temp = self.temperature_scale.new_protocol_temperature_from_set(value);
+    self.set_temperature = new_temp.temperature;
+  }
+
   pub fn as_status(&self) -> UserSettingsStatus {
     let now = Utc::now();
     let time = ProtocolTime::from_hm(

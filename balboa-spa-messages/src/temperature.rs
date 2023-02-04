@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use anyhow::anyhow;
 pub use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -12,6 +13,30 @@ pub struct ProtocolTemperature {
   pub raw_scale: TemperatureScale,
   pub(crate) raw_value: u8,
   pub temperature: Temperature,
+}
+
+impl ProtocolTemperature {
+  pub fn step(&self, direction: Direction) -> anyhow::Result<SetTemperature> {
+    let factor = if direction == Direction::Up { 1.0 } else { -1.0 };
+    let temperature = match self.raw_scale {
+      TemperatureScale::Fahrenheit => {
+        Temperature::from_fahrenheit(self.temperature.as_fahrenheit() + FAHRENHEIT_SCALE * factor)
+      },
+      TemperatureScale::Celsius => {
+        Temperature::from_celsius(self.temperature.as_celsius() + CELSIUS_SCALE * factor)
+      }
+    };
+    self.raw_scale.new_set_temperature(&temperature)
+  }
+}
+
+impl Display for ProtocolTemperature {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    match self.raw_scale {
+      TemperatureScale::Fahrenheit => write!(f, "{:.1}F", self.temperature.as_fahrenheit()),
+      TemperatureScale::Celsius => write!(f, "{:.1}C", self.temperature.as_celsius()),
+    }
+  }
 }
 
 #[derive(FromPrimitive, ToPrimitive, PrimitiveEnum_u8, Debug, PartialEq, Copy, Clone)]
@@ -29,6 +54,10 @@ impl TemperatureScale {
     let scaled_target = u8::from_f64(raw_target.round())
         .ok_or_else(|| anyhow!("Cannot scale {raw_target}"))?;
     Ok(SetTemperature { raw_value: scaled_target })
+  }
+
+  pub fn new_protocol_temperature_from_set(&self, value: SetTemperature) -> ProtocolTemperature {
+    self.new_protocol_temperature_from_raw(value.raw_value)
   }
 
   pub fn new_protocol_temperature_from_raw(&self, raw_value: u8) -> ProtocolTemperature {
@@ -57,4 +86,10 @@ impl TemperatureScale {
 #[derive(Debug, Clone)]
 pub struct SetTemperature {
   pub(crate) raw_value: u8,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Direction {
+  Up,
+  Down,
 }

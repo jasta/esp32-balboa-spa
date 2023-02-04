@@ -13,6 +13,7 @@ use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PayloadEncodeError, PayloadParseError, StatusUpdateMessage};
+use balboa_spa_messages::temperature::Direction;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
@@ -175,7 +176,6 @@ impl <W: Write + Send> EventHandler<W> {
     }
   }
 
-
   fn handle_message(&mut self, message: Message) -> Result<(), HandlingError> {
     self.message_logger.log(MessageDirection::Inbound, &message);
 
@@ -205,8 +205,33 @@ impl <W: Write + Send> EventHandler<W> {
 
   fn handle_button(&mut self, button: Button) {
     match button {
+      Button::Up => {
+        let _ = self.handle_temp_updown(Direction::Up);
+      },
+      Button::Down => {
+        let _ = self.handle_temp_updown(Direction::Down);
+      },
       _ => warn!("handle_button({button:?}): not implemented!"),
     }
+  }
+
+  fn handle_temp_updown(&mut self, direction: Direction) -> Result<(), ()> {
+    let current_temp = self.state.topside_state_machine.context.status
+        .as_ref()
+        .map(|m| {
+          m.message.v1.set_temperature.clone()
+        })
+        .ok_or(())?;
+    let temperature = current_temp.step(direction)
+        .map_err(drop)?;
+    info!("Setting temp to: {temperature:?}");
+    let mt = MessageType::SetTemperatureRequest { temperature };
+    self.enqueue_message(mt);
+    Ok(())
+  }
+
+  fn enqueue_message(&mut self, message: MessageType) {
+    self.state.topside_state_machine.enqueue_message(message);
   }
 }
 

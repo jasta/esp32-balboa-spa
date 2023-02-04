@@ -281,7 +281,7 @@ impl<W: Write + Send> EventHandler<W> {
       }
       Event::TimerTick(timer_id) => self.handle_timer(timer_id)?,
       Event::InitFinished => {
-        self.state.mock_spa.run_state = MockSpaState::Heating;
+        self.state.mock_spa.init_finished();
       },
       Event::Shutdown => return Err(HandlingError::ShutdownRequested),
     }
@@ -342,7 +342,7 @@ impl<W: Write + Send> EventHandler<W> {
       }
       MessageType::SetTemperatureRequest { temperature } => {
         info!("Got set temp request: temperature={temperature:?}");
-        self.state.mock_spa.settings.adjust_temperature(temperature);
+        self.state.mock_spa.adjust_temperature(temperature);
         None
       }
       MessageType::SetTimeRequest { time } => {

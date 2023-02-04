@@ -8,6 +8,7 @@ use log::LevelFilter;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use common_lib::transport::StdTransport;
+use mock_mainboard_lib::mock_spa::DEFAULT_HEATING_TEMP_C;
 
 // Note that this test is _really_ about mock_mainboard_lib testing, but we're putting it here
 // because assert_cmd assumes that we're testing a binary from the current crate.
@@ -47,7 +48,7 @@ fn esp8266_spa_hello_world() -> anyhow::Result<()> {
   control_handle.complete_init();
   reader.expect_all(vec![
     "Spa/heatingmode/state:ON",
-    "Spa/temperature/state:20.000000"
+    &format!("Spa/temperature/state:{:.6}", DEFAULT_HEATING_TEMP_C),
   ])?;
 
   control_handle.request_shutdown();

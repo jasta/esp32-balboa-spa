@@ -4,8 +4,12 @@ use balboa_spa_messages::parsed_enum::ParsedEnum;
 use balboa_spa_messages::temperature::{ProtocolTemperature, SetTemperature, Temperature, TemperatureScale};
 use balboa_spa_messages::time::ProtocolTime;
 
+pub const DEFAULT_SET_TEMP_C: f64 = 39.5;
+pub const DEFAULT_HEATING_TEMP_C: f64 = 38.0;
+
 #[derive(Debug)]
 pub struct MockSpa {
+  pub init_finished: bool,
   pub run_state: MockSpaState,
   pub hardware: MockHardware,
   pub settings: UserSettings,
@@ -14,6 +18,7 @@ pub struct MockSpa {
 impl Default for MockSpa {
   fn default() -> Self {
     Self {
+      init_finished: false,
       run_state: MockSpaState::Initializing,
       hardware: MockHardware {
         pumps: vec![PumpDevice::default()],
@@ -24,7 +29,7 @@ impl Default for MockSpa {
         temp_range: TemperatureRange::High,
         clock_mode: ClockMode::Hour12,
         temperature_scale: TemperatureScale::Celsius,
-        set_temperature: Temperature::from_celsius(39.5),
+        set_temperature: Temperature::from_celsius(DEFAULT_SET_TEMP_C),
       }
     }
   }
@@ -83,6 +88,30 @@ impl MockSpa {
     Default::default()
   }
 
+  pub fn init_finished(&mut self) {
+    self.init_finished = true;
+    self.update_run_state();
+  }
+
+  pub fn adjust_temperature(&mut self, value: SetTemperature) {
+    let new_temp = self.settings.temperature_scale.new_protocol_temperature_from_set(value);
+    self.settings.set_temperature = new_temp.temperature;
+    self.update_run_state();
+  }
+
+  fn update_run_state(&mut self) {
+    let new_state = if self.init_finished {
+      if self.settings.set_temperature.as_celsius() < DEFAULT_HEATING_TEMP_C {
+        MockSpaState::Hold
+      } else {
+        MockSpaState::Heating
+      }
+    } else {
+      MockSpaState::Initializing
+    };
+    self.run_state = new_state;
+  }
+
   pub fn as_status(&self) -> StatusUpdateMessage {
     let run_status = self.run_state.as_status();
     let hw_status = self.hardware.as_status();
@@ -92,7 +121,7 @@ impl MockSpa {
       CurrentTemperatureState::Unknown => None,
       CurrentTemperatureState::Low => {
         Some(user_status.temperature_scale
-            .new_protocol_temperature(Temperature::from_celsius(20.0)).unwrap())
+            .new_protocol_temperature(Temperature::from_celsius(DEFAULT_HEATING_TEMP_C)).unwrap())
       },
       CurrentTemperatureState::AtTarget => Some(user_status.set_temperature.clone()),
     };
@@ -216,11 +245,6 @@ pub enum CurrentTemperatureState {
 }
 
 impl UserSettings {
-  pub fn adjust_temperature(&mut self, value: SetTemperature) {
-    let new_temp = self.temperature_scale.new_protocol_temperature_from_set(value);
-    self.set_temperature = new_temp.temperature;
-  }
-
   pub fn as_status(&self) -> UserSettingsStatus {
     let now = Utc::now();
     let time = ProtocolTime::from_hm(

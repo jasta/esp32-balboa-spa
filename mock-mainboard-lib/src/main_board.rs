@@ -425,11 +425,11 @@ impl<W: Write + Send> EventHandler<W> {
                 MessageType::NewClientClearToSend()
                     .to_message(Channel::MulticastChannelAssignment)?))
             },
-            TickAction::StatupUpdate => {
+            TickAction::StatusUpdate => {
               Some(smf.no_reply(
                 MessageType::StatusUpdate(self.state.mock_spa.as_status())
                     .to_message(Channel::MulticastBroadcast)?))
-            },
+            }
             TickAction::ClearToSend { index } => {
               let num_channels = self.channel_manager().num_channels();
               if num_channels == 0 {

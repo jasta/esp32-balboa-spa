@@ -14,7 +14,7 @@ pub struct TimerTracker {
 pub enum TickAction {
   NewClientClearToSend,
   ClearToSend { index: usize },
-  StatupUpdate,
+  StatusUpdate,
 }
 
 impl Default for TimerTracker {
@@ -49,14 +49,14 @@ impl TimerTracker {
       TickAction::ClearToSend { index } => {
         let next_index = index + 1;
         if next_index == self.half_clear_to_send_ticks {
-          TickAction::StatupUpdate
+          TickAction::StatusUpdate
         } else if next_index == self.clear_to_send_ticks {
           TickAction::NewClientClearToSend
         } else {
           TickAction::ClearToSend { index: next_index }
         }
       },
-      TickAction::StatupUpdate => TickAction::ClearToSend { index: self.half_clear_to_send_ticks },
+      TickAction::StatusUpdate => TickAction::ClearToSend { index: self.half_clear_to_send_ticks },
     };
     self.next_action = next;
     current
@@ -84,7 +84,7 @@ mod tests {
       TickAction::NewClientClearToSend,
       TickAction::ClearToSend { index: 0 },
       TickAction::ClearToSend { index: 1 },
-      TickAction::StatupUpdate,
+      TickAction::StatusUpdate,
       TickAction::ClearToSend { index: 2 },
       TickAction::ClearToSend { index: 3 },
     ]);

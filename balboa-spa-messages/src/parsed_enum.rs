@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Display, Formatter};
 use num_traits::{FromPrimitive, ToPrimitive};
 
 /// Attempt at a type-safe way of preserving the original raw value so that it could be inspected
@@ -6,7 +7,7 @@ use num_traits::{FromPrimitive, ToPrimitive};
 /// entire structures if any part is unparseable.  Not ideal in more robust protocols, but
 /// this one is fairly rigidly defined and can be updated easily if errors are encountered in
 /// the wild.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ParsedEnum<TYPE, PRIMITIVE> {
   parsed: Option<TYPE>,
   raw: PRIMITIVE,
@@ -44,6 +45,15 @@ where
 impl<TYPE, PRIMITIVE: PartialEq> PartialEq for ParsedEnum<TYPE, PRIMITIVE> {
   fn eq(&self, other: &Self) -> bool {
     self.raw == other.raw
+  }
+}
+
+impl<TYPE: Debug, PRIMITIVE: Display> Debug for ParsedEnum<TYPE, PRIMITIVE> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    match self.parsed {
+      Some(ref v) => write!(f, "{v:?}"),
+      None => write!(f, "Raw({})", self.raw),
+    }
   }
 }
 

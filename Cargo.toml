@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "balboa-spa-messages",
+  "balboa-tools",
   "common-lib",
   "mock-mainboard-lib",
   "mock-topside-panel-app",

@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Pointer};
 use anyhow::anyhow;
 pub use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -8,7 +8,7 @@ use packed_struct::prelude::*;
 const FAHRENHEIT_SCALE: f64 = 1.0;
 const CELSIUS_SCALE: f64 = 0.5;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ProtocolTemperature {
   pub raw_scale: TemperatureScale,
   pub(crate) raw_value: u8,
@@ -27,6 +27,12 @@ impl ProtocolTemperature {
       }
     };
     self.raw_scale.new_set_temperature(&temperature)
+  }
+}
+
+impl Debug for ProtocolTemperature {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    Display::fmt(self, f)
   }
 }
 

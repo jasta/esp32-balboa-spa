@@ -1,0 +1,11 @@
+[package]
+name = "balboa-tools"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4.17"
+anyhow = "1"
+thiserror = "1"
+balboa-spa-messages = { path = "../balboa-spa-messages" }
+num-traits = "0.2.15"

@@ -3,7 +3,7 @@ use balboa_spa_messages::channel::Channel;
 #[derive(Debug)]
 pub enum ChannelFilter {
   None,
-  RelevantTo(Channel),
+  RelevantTo(Vec<Channel>),
   BlockEverything,
 }
 
@@ -11,8 +11,8 @@ impl ChannelFilter {
   pub fn apply(&self, channel: &Channel) -> FilterResult {
     match self {
       ChannelFilter::None => FilterResult::Any,
-      ChannelFilter::RelevantTo(target) => {
-        if target == channel {
+      ChannelFilter::RelevantTo(targets) => {
+        if targets.contains(channel) {
           return FilterResult::MyChannel;
         }
         if channel == &Channel::MulticastBroadcast {

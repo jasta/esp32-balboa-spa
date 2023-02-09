@@ -175,9 +175,9 @@ impl <W: Write + Send> EventHandler<W> {
 
     self.state.cts_state_machine.handle_message(&mut self.framed_writer, &self.mainboard_logger, &message.channel, &mt)?;
     if let Some(channel) = self.state.cts_state_machine.take_got_channel() {
-      debug!("Setting channel filter for {:?}", channel);
+      info!("Setting channel filter for {:?}", channel);
       self.state.wifi_state_machine.set_channel_filter(
-        ChannelFilter::RelevantTo(channel));
+        ChannelFilter::RelevantTo(vec![Channel::WifiModule, channel]));
     }
     self.state.wifi_state_machine.handle_message(&mut self.framed_writer, &self.mainboard_logger, &message.channel, &mt)?;
 

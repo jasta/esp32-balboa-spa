@@ -4,6 +4,7 @@ use balboa_spa_messages::channel::Channel;
 pub enum ChannelFilter {
   None,
   RelevantTo(Channel),
+  BlockEverything,
 }
 
 impl ChannelFilter {
@@ -19,6 +20,7 @@ impl ChannelFilter {
         }
         FilterResult::Blocked
       }
+      ChannelFilter::BlockEverything => FilterResult::Blocked,
     }
   }
 }

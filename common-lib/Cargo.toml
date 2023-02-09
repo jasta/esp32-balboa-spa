@@ -11,6 +11,7 @@ balboa-spa-messages = { path = "../balboa-spa-messages" }
 bus = "2.3.0"
 num-traits = "0.2.15"
 rand = "0.8.5"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 env_logger = "0.10.0"

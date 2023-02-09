@@ -2,15 +2,27 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Instant;
 use balboa_spa_messages::message_types::{Boolean, ConfigurationResponseMessage, HeatingState, PumpConfig, PumpStatus, RelayStatus, StatusUpdateMessage, StatusUpdateResponseV1};
+use common_lib::channel_filter::ChannelFilter;
 use crate::network::topside_state_machine::{TopsideStateKind, TopsideStateMachine};
 use common_lib::cts_state_machine::{CtsStateKind, CtsStateMachine};
 use crate::model::temperature_model::{TemperatureModel, TemperatureRangeModel};
 use crate::model::view_model::{ConnectionState, DeviceCategory, DeviceLevel, DeviceModel, HotTubModel, ViewModel};
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub(crate) struct AppState {
   pub cts_state_machine: CtsStateMachine,
   pub topside_state_machine: TopsideStateMachine,
+}
+
+impl Default for AppState {
+  fn default() -> Self {
+    let mut topside_state_machine = TopsideStateMachine::new();
+    topside_state_machine.set_channel_filter(ChannelFilter::BlockEverything);
+    Self {
+      cts_state_machine: CtsStateMachine::default(),
+      topside_state_machine,
+    }
+  }
 }
 
 impl AppState {

@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::MessageType;
-use common_lib::message_logger::MessageDirection;
 use common_lib::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
 use common_lib::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 

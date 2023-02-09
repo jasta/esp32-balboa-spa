@@ -1,4 +1,4 @@
-use balboa_spa_messages::message_types::PayloadParseError;
+use balboa_spa_messages::message_types::{PayloadEncodeError, PayloadParseError};
 use common_lib::message_state_machine::MessageHandlingError;
 
 #[derive(thiserror::Error, Debug)]
@@ -23,6 +23,12 @@ impl From<MessageHandlingError> for HandlingError {
 
 impl From<PayloadParseError> for HandlingError {
   fn from(value: PayloadParseError) -> Self {
+    HandlingError::UnexpectedPayload(value.to_string())
+  }
+}
+
+impl From<PayloadEncodeError> for HandlingError {
+  fn from(value: PayloadEncodeError) -> Self {
     HandlingError::UnexpectedPayload(value.to_string())
   }
 }

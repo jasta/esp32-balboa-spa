@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
+use log::info;
+use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::MessageType;
+use balboa_spa_messages::message_types::{MessageType, WifiModuleIdentificationMessage};
 use common_lib::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
 use common_lib::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 

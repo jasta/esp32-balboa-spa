@@ -3,10 +3,11 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{Receiver, SendError, sync_channel, SyncSender};
 use anyhow::anyhow;
 use log::{debug, error, info, warn};
+use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
-use balboa_spa_messages::message_types::MessageType;
+use balboa_spa_messages::message_types::{MessageType, WifiModuleIdentificationMessage};
 use common_lib::channel_filter::ChannelFilter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
@@ -51,7 +52,7 @@ impl <R: Read, W: Write> WifiModule<R, W> {
       mainboard_logger: MessageLogger::new(module_path!()),
       commands_rx,
       events_tx,
-      state: AppState::default(),
+      state: AppState::new(self.advertisement.clone()),
     };
     let discovery_handler = DiscoveryHandler::setup(self.advertisement)?;
     let tcp_handler = TcpListenerHandler::setup(
@@ -181,24 +182,43 @@ impl <W: Write + Send> EventHandler<W> {
     }
     self.state.wifi_state_machine.handle_message(&mut self.framed_writer, &self.mainboard_logger, &message.channel, &mt)?;
 
-    for message in self.state.wifi_state_machine.context.for_relay_messages.drain(..) {
-      self.events_tx.send_to_all(&RelayMainboardMessage(message));
+    while let Some(for_relay) =
+        self.state.wifi_state_machine.context.for_relay_messages.pop_front() {
+      self.enqueue_message_to_app(for_relay);
     }
 
     Ok(())
   }
 
   fn handle_relay_message(&mut self, message: Message) -> Result<(), HandlingError> {
-    // Note that we implicitly drop the channel as we will always relay with our own
-    // channel instead of the one from the hot tub.  Kind of ridiculous that the channel
-    // concept was copied to the IP protocol if you ask me...
     let mt = MessageType::try_from(&message)?;
-    self.enqueue_message(mt);
+
+    match mt {
+      MessageType::ExistingClientRequest() => {
+        if message.channel == Channel::WifiModule {
+          info!("Interpreting ExistingClientRequest as Wifi Config request...");
+          self.enqueue_message_to_app(MessageType::WifiModuleConfigurationResponse(
+            WifiModuleIdentificationMessage {
+              mac: self.state.advertisement.mac,
+            }
+          ).to_message(message.channel)?);
+        } else {
+          info!("Got existing channel request on channel={:?} ???", message.channel);
+        }
+      }
+      mt => {
+        self.enqueue_message_to_board(mt);
+      }
+    }
 
     Ok(())
   }
 
-  fn enqueue_message(&mut self, message: MessageType) {
+  fn enqueue_message_to_board(&mut self, message: MessageType) {
     self.state.wifi_state_machine.context.outbound_messages.push_back(message);
+  }
+
+  fn enqueue_message_to_app(&mut self, message: Message) {
+    self.events_tx.send_to_all(&RelayMainboardMessage(message));
   }
 }

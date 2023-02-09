@@ -48,7 +48,7 @@ impl <R: Read, W: Write> WifiModule<R, W> {
     };
     let event_handler = EventHandler {
       framed_writer: self.framed_writer,
-      mainboard_logger: MessageLogger::new("mainboard"),
+      mainboard_logger: MessageLogger::new(module_path!()),
       commands_rx,
       events_tx,
       state: AppState::default(),

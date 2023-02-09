@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 use balboa_spa_messages::channel::Channel;
 use std::fmt::Debug;
+use log::debug;
 use balboa_spa_messages::message_types::{MessageType};
 use crate::client_ident::ClientIdent;
 use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
@@ -78,6 +79,7 @@ impl MessageState for StateWaitingForChannelAssignment {
           args.sm.move_to_state(StateChannelAssigned(channel));
           SendReply(MessageType::ChannelAssignmentAck().to_message(channel))
         } else {
+          debug!("Ignoring channel assignment for {client_hash:04X} (I'm {:04X})", self.ident.client_hash);
           NotHandled
         }
       }

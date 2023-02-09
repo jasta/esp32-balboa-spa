@@ -2,7 +2,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::{io, thread};
 use std::sync::mpsc::{SyncSender};
 use std::time::Duration;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
@@ -39,7 +39,7 @@ impl TcpListenerHandler {
   pub fn run_loop(self) -> anyhow::Result<()> {
     loop {
       let (stream, peer) = self.listener.accept()?;
-      debug!("Accepted connection from: {peer}");
+      info!("Accepted connection from: {peer}");
 
       stream.set_read_timeout(Some(READ_TIMEOUT))?;
 

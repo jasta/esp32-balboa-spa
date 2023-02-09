@@ -13,7 +13,6 @@ pub struct ClientIdent {
 impl Default for ClientIdent {
   fn default() -> Self {
     let client_hash = rand::random();
-    info!("Initializing with client_hash: {client_hash:02X}");
     Self {
       device_type: DEFAULT_DEVICE_TYPE,
       client_hash,

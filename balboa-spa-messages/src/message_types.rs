@@ -79,9 +79,7 @@ pub enum MessageType {
   } = 0x2b,
   LockRequest(LockRequestMessage) = 0x2d,
   ConfigurationResponse(ConfigurationResponseMessage) = 0x2e,
-  WifiModuleConfigurationResponse {
-    mac: [u8; 6],
-  } = 0x94,
+  WifiModuleConfigurationResponse(WifiModuleIdentificationMessage) = 0x94,
   ToggleTestSettingRequest(ToggleTestMessage) = 0xe0,
 }
 
@@ -103,6 +101,7 @@ pub enum MessageTypeKind {
   SettingsRequest = 0x22,
   FilterCycles = 0x23,
   InformationResponse = 0x24,
+  Settings0x04Response = 0x25,
   PreferencesResponse = 0x26,
   SetPreferenceRequest = 0x27,
   FaultLogResponse = 0x28,
@@ -952,6 +951,38 @@ pub enum LockRequestMessage {
 }
 
 #[derive(Debug, Clone)]
+pub struct WifiModuleIdentificationMessage {
+  pub mac: [u8; 6],
+}
+
+impl TryFrom<&WifiModuleIdentificationMessage> for Vec<u8> {
+  type Error = PayloadEncodeError;
+
+  fn try_from(value: &WifiModuleIdentificationMessage) -> Result<Self, Self::Error> {
+    let mut cursor = Cursor::new(Vec::new());
+    cursor.write_all(&[0u8; 2])?;
+    cursor.write_all(&value.mac)?;
+    cursor.write_all(&[0u8; 8])?;
+    cursor.write_all(&value.mac[..3])?;
+    cursor.write_all(&[0xffu8; 2])?;
+    cursor.write_all(&value.mac[3..])?;
+    Ok(cursor.into_inner())
+  }
+}
+
+impl TryFrom<&[u8]> for WifiModuleIdentificationMessage {
+  type Error = PayloadParseError;
+
+  fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    let mut cursor = Cursor::new(value);
+    cursor.set_position(2);
+    let mut mac = [0u8; 6];
+    cursor.read_exact(&mut mac)?;
+    Ok(Self { mac })
+  }
+}
+
+#[derive(Debug, Clone)]
 pub struct ConfigurationResponseMessage {
   pub pumps: Vec<ParsedEnum<PumpConfig, u8>>,
   pub has_lights: Vec<ParsedEnum<Boolean, u8>>,
@@ -1270,6 +1301,9 @@ impl TryFrom<&Message> for MessageType {
       MessageTypeKind::InformationResponse => {
         MessageType::InformationResponse(InformationResponseMessage::try_from(value.payload.as_slice())?)
       }
+      MessageTypeKind::Settings0x04Response => {
+        MessageType::Settings0x04Response(Settings0x04ResponseMessage::try_from(value.payload.as_slice())?)
+      }
       MessageTypeKind::PreferencesResponse => todo!(),
       MessageTypeKind::SetPreferenceRequest => todo!(),
       MessageTypeKind::FaultLogResponse =>
@@ -1279,7 +1313,8 @@ impl TryFrom<&Message> for MessageType {
       MessageTypeKind::LockRequest => todo!(),
       MessageTypeKind::ConfigurationResponse =>
         MessageType::ConfigurationResponse(ConfigurationResponseMessage::try_from(value.payload.as_slice())?),
-      MessageTypeKind::WifiModuleConfigurationResponse => todo!(),
+      MessageTypeKind::WifiModuleConfigurationResponse =>
+        MessageType::WifiModuleConfigurationResponse(WifiModuleIdentificationMessage::try_from(value.payload.as_slice())?),
       MessageTypeKind::ToggleTestSettingRequest => todo!(),
     };
     Ok(parsed)
@@ -1343,8 +1378,8 @@ impl TryFrom<MessageType> for Vec<u8> {
         vec![message.to_u8().unwrap()],
       MessageType::ConfigurationResponse(message) =>
         Vec::<u8>::try_from(&message)?,
-      MessageType::WifiModuleConfigurationResponse { mac } =>
-        mac.to_vec(),
+      MessageType::WifiModuleConfigurationResponse(message) =>
+        Vec::<u8>::try_from(&message)?,
       MessageType::ToggleTestSettingRequest(message) =>
         vec![message.to_u8().unwrap()],
     };

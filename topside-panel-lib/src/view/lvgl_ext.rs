@@ -1,3 +1,5 @@
+use std::mem;
+use std::mem::MaybeUninit;
 use lvgl::style::Style;
 use lvgl::{LvResult, NativeObject, State};
 use crate::view::font::Font;
@@ -24,4 +26,19 @@ where
       value);
   }
   Ok(())
+}
+
+pub struct Anim {
+  raw: Box<lvgl_sys::lv_anim_t>,
+}
+
+impl Anim {
+  pub fn new() -> LvResult<Anim> {
+    let raw = unsafe {
+      let mut anim = mem::MaybeUninit::<lvgl_sys::lv_anim_t>::uninit();
+      lvgl_sys::lv_anim_init(anim.as_mut_ptr());
+      Box::new(anim.assume_init())
+    };
+    Ok(Anim { raw })
+  }
 }

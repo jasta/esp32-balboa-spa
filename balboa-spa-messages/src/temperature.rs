@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter, Pointer};
+use std::fmt::{Debug, Display, Formatter};
 use anyhow::anyhow;
 pub use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};

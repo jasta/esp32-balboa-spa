@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::time::Instant;
 use log::{debug, info};
 use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
-use crate::network::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
-use crate::network::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
+use common_lib::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
+use common_lib::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 
 pub type TopsideStateMachine = MessageStateMachine<StateWaitingForCts>;
 
@@ -13,12 +13,6 @@ pub struct TopsideContext {
   pub config: Option<ConfigurationResponseMessage>,
   pub status: Option<ReceivedStatusMessage>,
   pub outbound_messages: VecDeque<MessageType>,
-}
-
-impl TopsideStateMachine {
-  pub fn enqueue_message(&mut self, mt: MessageType) {
-    self.context.outbound_messages.push_back(mt);
-  }
 }
 
 #[derive(Debug)]

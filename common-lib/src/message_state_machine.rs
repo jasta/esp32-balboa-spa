@@ -1,13 +1,12 @@
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::message_types::{MessageType, PayloadEncodeError};
-use std::marker::PhantomData;
 use std::io::Write;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use log::debug;
 use balboa_spa_messages::message::Message;
-use std::fmt::{Debug, Formatter};
-use common_lib::message_logger::{MessageDirection, MessageLogger};
-use crate::network::channel_filter::{ChannelFilter, FilterResult};
+use std::fmt::{Debug};
+use crate::channel_filter::{ChannelFilter, FilterResult};
+use crate::message_logger::{MessageDirection, MessageLogger};
 
 #[derive(Debug)]
 pub struct MessageStateMachine<IS: MessageState> {

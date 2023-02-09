@@ -18,12 +18,12 @@ use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
 use crate::network::app_state::AppState;
-use crate::network::channel_filter::ChannelFilter;
+use common_lib::channel_filter::ChannelFilter;
 use crate::network::topside_state_machine::{StateReadingStatus, TopsideStateKind, TopsideStateMachine};
-use crate::network::cts_state_machine::{CtsStateKind, CtsStateMachine};
+use common_lib::cts_state_machine::{CtsStateKind, CtsStateMachine};
 use crate::network::handling_error::HandlingError;
 use crate::network::handling_error::HandlingError::FatalError;
-use crate::network::message_state_machine::MessageHandlingError;
+use common_lib::message_state_machine::MessageHandlingError;
 use crate::model::view_model::ViewModel;
 use crate::model::view_model_event_handle::{Event, ViewModelEventHandle};
 use crate::model::button::Button;
@@ -231,7 +231,7 @@ impl <W: Write + Send> EventHandler<W> {
   }
 
   fn enqueue_message(&mut self, message: MessageType) {
-    self.state.topside_state_machine.enqueue_message(message);
+    self.state.topside_state_machine.context.outbound_messages.push_back(message);
   }
 }
 
@@ -241,22 +241,4 @@ enum Command {
   ReadError(anyhow::Error),
   ButtonPressed(Button),
   Shutdown,
-}
-
-impl From<MessageHandlingError> for HandlingError {
-  fn from(value: MessageHandlingError) -> Self {
-    match value {
-      MessageHandlingError::FatalError(m) => FatalError(m),
-    }
-  }
-}
-
-impl From<PayloadEncodeError> for HandlingError {
-  fn from(value: PayloadEncodeError) -> Self {
-    match value {
-      PayloadEncodeError::GenericError(e) => FatalError(format!("{e:?})")),
-      PayloadEncodeError::GenericIoError(e) => FatalError(format!("{e:?}")),
-      PayloadEncodeError::NotSupported => FatalError("Not supported".to_owned()),
-    }
-  }
 }

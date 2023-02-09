@@ -1,13 +1,10 @@
 use std::time::{Duration, Instant};
 use balboa_spa_messages::channel::Channel;
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
-use balboa_spa_messages::message_types::{MessageType, MessageTypeKind};
-use crate::network::message_state_machine::SmResult::{NotHandled, HandledNoReply, SendReply};
-use crate::network::client_ident::ClientIdent;
-use crate::network::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
-use crate::model::view_model_event_handle::Event;
+use balboa_spa_messages::message_types::{MessageType};
+use crate::client_ident::ClientIdent;
+use crate::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
+use crate::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 
 const DEFAULT_NEW_CLIENT_RETRY_WAIT: Duration = Duration::from_secs(2);
 

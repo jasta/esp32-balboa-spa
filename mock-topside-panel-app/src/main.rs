@@ -8,14 +8,26 @@ use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::network::topside_panel::TopsidePanel;
 use wifi_module_lib::wifi_module::WifiModule;
 use std::io::Write;
+use std::net::IpAddr;
+use anyhow::anyhow;
+use clap::Parser;
 use topside_panel_lib::view::ui_handler::UiHandler;
+use crate::args::Args;
 use crate::simulator_window::SimulatorDevice;
 
 mod simulator_window;
+mod args;
 
 const GRACEFUL_SHUTDOWN_PERIOD: Duration = Duration::from_secs(3);
 
 fn main() -> anyhow::Result<()> {
+  let args = Args::parse();
+
+  match args.connect_to {
+    ConnectMode::MockSpa => {},
+    _ => todo!(),
+  }
+
   env_logger::builder()
       .format(|buf, record| {
         let ts = buf.timestamp_micros();

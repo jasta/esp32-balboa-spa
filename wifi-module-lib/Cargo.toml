@@ -9,6 +9,7 @@ anyhow = "1"
 thiserror = "1"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 common-lib = { path = "../common-lib" }
+crossbeam = "0.8.2"
 
 [dev-dependencies]
 env_logger = "0.10.0"

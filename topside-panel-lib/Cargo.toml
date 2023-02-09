@@ -10,7 +10,6 @@ thiserror = "1"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 common-lib = { path = "../common-lib" }
 measurements = "0.11.0"
-rand = "0.8.5"
 embedded-graphics = "0.7.1"
 lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }
 lvgl-sys = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }

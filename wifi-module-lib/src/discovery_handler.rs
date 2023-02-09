@@ -1,37 +1,13 @@
 use std::net::UdpSocket;
-use std::fmt::Write;
 use std::io;
-use log::{debug, error};
+use log::{error, info};
+use crate::advertisement::Advertisement;
 
 const DISCOVERY_PORT: u16 = 30303;
 
 pub struct DiscoveryHandler {
   advertisement: Advertisement,
   socket: UdpSocket,
-}
-
-pub struct Advertisement {
-  payload: Vec<u8>,
-}
-
-impl Advertisement {
-  pub fn new(name: &str, mac: &[u8; 6]) -> Self {
-    let mac_str = mac.iter().fold(String::new(), |mut out, b| {
-      if out.is_empty() {
-        out.push('-');
-      }
-      write!(out, "{:02X}", b).unwrap();
-      out
-    });
-
-    let mut mac_str = String::new();
-    for b in mac {
-      write!(mac_str, "{:02X}", b).unwrap();
-    }
-
-    let payload = format!("{name}\r\n{mac_str}\r\n").as_bytes().to_vec();
-    Self { payload }
-  }
 }
 
 impl DiscoveryHandler {
@@ -51,7 +27,7 @@ impl DiscoveryHandler {
 
       let received = String::from_utf8(buf[0..n].to_vec())
           .unwrap_or_else(|_| format!("{:?}", &buf[0..n]));
-      debug!("{addr} said: {received}");
+      info!("{addr} looking for us: {received}");
 
       let reply = &self.advertisement.payload;
       let reply_len = reply.len();

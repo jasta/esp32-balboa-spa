@@ -7,3 +7,4 @@ mod tcp_handler;
 mod command;
 mod event;
 mod broadcaster;
+pub mod advertisement;

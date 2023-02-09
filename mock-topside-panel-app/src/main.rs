@@ -8,11 +8,10 @@ use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::network::topside_panel::TopsidePanel;
 use wifi_module_lib::wifi_module::WifiModule;
 use std::io::Write;
-use std::net::IpAddr;
-use anyhow::anyhow;
 use clap::Parser;
 use topside_panel_lib::view::ui_handler::UiHandler;
-use crate::args::Args;
+use wifi_module_lib::advertisement::Advertisement;
+use crate::args::{Args, ConnectMode};
 use crate::simulator_window::SimulatorDevice;
 
 mod simulator_window;
@@ -53,7 +52,9 @@ fn main() -> anyhow::Result<()> {
     StdTransport::new(client_in, client_out));
 
   let topside = TopsidePanel::new(bus_switch.new_connection());
-  let wifi_module = WifiModule::new(bus_switch.new_connection());
+  let wifi_module = WifiModule::new(
+      bus_switch.new_connection(),
+      Advertisement::fake_balboa())?;
 
   bus_switch.start();
 
@@ -67,9 +68,10 @@ fn main() -> anyhow::Result<()> {
       .name("Topside Thread".to_owned())
       .spawn(move || topside_runner.run_loop().unwrap())?;
 
+  let wifi_runner = wifi_module.into_runner()?;
   let wifi_thread = thread::Builder::new()
       .name("Wifi Thread".to_owned())
-      .spawn(move || wifi_module.run_loop().unwrap())?;
+      .spawn(move || wifi_runner.run_loop().unwrap())?;
 
   let ui_thread = thread::Builder::new()
       .name("UI Thread".to_owned())

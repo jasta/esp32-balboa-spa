@@ -3,7 +3,7 @@ use balboa_spa_messages::message_types::MessageTypeKind;
 use log::{Level, log};
 use num_traits::FromPrimitive;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessageLogger {
   debug_name: &'static str,
 }

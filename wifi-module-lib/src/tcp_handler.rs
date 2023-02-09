@@ -5,6 +5,7 @@ use std::time::Duration;
 use log::{debug, warn};
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
+use common_lib::message_logger::{MessageDirection, MessageLogger};
 use crate::broadcaster::BroadcastReceiver;
 use crate::command::Command;
 use crate::event::Event;
@@ -14,6 +15,7 @@ const TCP_PORT: u16 = 4257;
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub(crate) struct TcpListenerHandler {
+  logger: MessageLogger,
   listener: TcpListener,
   commands_tx: SyncSender<Command>,
   events_rx: BroadcastReceiver<Event>,
@@ -21,12 +23,14 @@ pub(crate) struct TcpListenerHandler {
 
 impl TcpListenerHandler {
   pub fn setup(
+      logger: MessageLogger,
       commands_tx: SyncSender<Command>,
       events_rx: BroadcastReceiver<Event>
   ) -> io::Result<Self> {
-    let socket = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT))?;
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT))?;
     Ok(Self {
-      listener: socket,
+      logger,
+      listener,
       commands_tx,
       events_rx,
     })
@@ -44,6 +48,7 @@ impl TcpListenerHandler {
         peer,
         commands_tx: self.commands_tx.clone(),
         events_rx: self.events_rx.clone(),
+        logger: self.logger.clone(),
       };
 
       thread::Builder::new()
@@ -59,6 +64,7 @@ struct TcpStreamHandler {
   peer: SocketAddr,
   commands_tx: SyncSender<Command>,
   events_rx: BroadcastReceiver<Event>,
+  logger: MessageLogger,
 }
 
 impl TcpStreamHandler {
@@ -67,14 +73,16 @@ impl TcpStreamHandler {
       let reader = TcpStreamReader {
         reader: FramedReader::new(&self.stream),
         commands_tx: self.commands_tx,
+        logger: &self.logger,
       };
       let writer = TcpStreamWriter {
         writer: FramedWriter::new(&self.stream),
         events_rx: self.events_rx,
+        logger: &self.logger,
       };
 
       let writer_thread = s.builder()
-          .name(format!("TcpWriter-{}", self.peer).to_owned())
+          .name(format!("TcpWriter-{}", self.peer))
           .spawn(|_| {
             if let Err(e) = writer.run_loop() {
               warn!("TcpWriter: {e}");
@@ -94,12 +102,14 @@ impl TcpStreamHandler {
 struct TcpStreamReader<'a> {
   reader: FramedReader<&'a TcpStream>,
   commands_tx: SyncSender<Command>,
+  logger: &'a MessageLogger,
 }
 
 impl<'a> TcpStreamReader<'a> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       let message = self.reader.next_message()?;
+      self.logger.log(MessageDirection::Inbound, &message);
       self.commands_tx.send(Command::RelayIpMessage(message))?;
     }
   }
@@ -108,14 +118,16 @@ impl<'a> TcpStreamReader<'a> {
 struct TcpStreamWriter<'a> {
   writer: FramedWriter<&'a TcpStream>,
   events_rx: BroadcastReceiver<Event>,
+  logger: &'a MessageLogger,
 }
 
 impl<'a> TcpStreamWriter<'a> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       match self.events_rx.rx().recv()? {
-        Event::RelayMainboardMessage(m) => {
-          self.writer.write(&m)?
+        Event::RelayMainboardMessage(message) => {
+          self.logger.log(MessageDirection::Outbound, &message);
+          self.writer.write(&message)?
         }
       }
     }

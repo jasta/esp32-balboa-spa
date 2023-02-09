@@ -10,10 +10,11 @@ use balboa_spa_messages::message_types::MessageType;
 use common_lib::channel_filter::ChannelFilter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
+use crate::advertisement::Advertisement;
 use crate::app_state::AppState;
 use crate::broadcaster::{broadcast_channel, BroadcastSender};
 use crate::command::Command;
-use crate::discovery_handler::{Advertisement, DiscoveryHandler};
+use crate::discovery_handler::DiscoveryHandler;
 use crate::event::Event;
 use crate::event::Event::RelayMainboardMessage;
 use crate::handling_error::HandlingError;
@@ -48,13 +49,15 @@ impl <R: Read, W: Write> WifiModule<R, W> {
     let event_handler = EventHandler {
       framed_writer: self.framed_writer,
       mainboard_logger: MessageLogger::new("mainboard"),
-      relay_logger: MessageLogger::new("ip_relay"),
       commands_rx,
       events_tx,
       state: AppState::default(),
     };
     let discovery_handler = DiscoveryHandler::setup(self.advertisement)?;
-    let tcp_handler = TcpListenerHandler::setup(commands_tx, events_rx)?;
+    let tcp_handler = TcpListenerHandler::setup(
+        MessageLogger::new("ip_relay"),
+        commands_tx,
+        events_rx)?;
     Ok(Runner {
       message_reader,
       event_handler,
@@ -131,7 +134,6 @@ impl<R: Read + Send> MessageReader<R> {
 struct EventHandler<W> {
   framed_writer: FramedWriter<W>,
   mainboard_logger: MessageLogger,
-  relay_logger: MessageLogger,
   commands_rx: Receiver<Command>,
   events_tx: BroadcastSender<Event>,
   state: AppState,
@@ -187,8 +189,6 @@ impl <W: Write + Send> EventHandler<W> {
   }
 
   fn handle_relay_message(&mut self, message: Message) -> Result<(), HandlingError> {
-    self.relay_logger.log(MessageDirection::Outbound, &message);
-
     // Note that we implicitly drop the channel as we will always relay with our own
     // channel instead of the one from the hot tub.  Kind of ridiculous that the channel
     // concept was copied to the IP protocol if you ask me...

@@ -617,8 +617,13 @@ pub struct FilterCycle {
 
 #[derive(Debug, Clone)]
 pub struct Settings0x04ResponseMessage {
-  pub low_temp_range: (Temperature, Temperature),
-  pub high_temp_range: (Temperature, Temperature),
+  pub min_max_temps: TemperatureMinMax,
+}
+
+#[derive(Debug, Clone)]
+pub struct TemperatureMinMax {
+  pub low_range: (Temperature, Temperature),
+  pub high_range: (Temperature, Temperature),
 }
 
 impl TryFrom<&Settings0x04ResponseMessage> for Vec<u8> {
@@ -629,7 +634,8 @@ impl TryFrom<&Settings0x04ResponseMessage> for Vec<u8> {
 
     cursor.write_all(&[0u8; 2])?;
 
-    for (min, max) in [&value.low_temp_range, &value.high_temp_range] {
+    let ranges = &value.min_max_temps;
+    for (min, max) in [&ranges.low_range, &ranges.high_range] {
       for t in [min, max] {
         cursor.write_u8(t.as_fahrenheit().to_u8().unwrap_or(0xff))?;
       }
@@ -653,8 +659,10 @@ impl TryFrom<&[u8]> for Settings0x04ResponseMessage {
       temps.push(Temperature::from_fahrenheit(f64::from(t)));
     }
     Ok(Self {
-      low_temp_range: (temps[0], temps[1]),
-      high_temp_range: (temps[2], temps[3]),
+      min_max_temps: TemperatureMinMax {
+        low_range: (temps[0], temps[1]),
+        high_range: (temps[2], temps[3]),
+      },
     })
   }
 }

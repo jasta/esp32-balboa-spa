@@ -374,11 +374,9 @@ impl<W: Write + Send> EventHandler<W> {
             ).to_message(src_channel)?))
           }
           SettingsRequestMessage::Settings0x04 => {
-            // No clue...
-            let unknown = vec![0x02, 0x02, 0x32, 0x63, 0x50, 0x68, 0x20, 0x07, 0x01];
-            Some(smf.no_reply(MessageType::Settings0x04Response(Settings0x04ResponseMessage {
-              unknown,
-            }).to_message(src_channel)?))
+            Some(smf.no_reply(MessageType::Settings0x04Response(
+              self.state.mock_spa.as_settings0x04()
+            ).to_message(src_channel)?))
           }
           n => {
             error!("Unhandled settings request: {n:?}");

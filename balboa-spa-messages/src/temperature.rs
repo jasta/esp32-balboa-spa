@@ -4,6 +4,7 @@ pub use measurements::Temperature;
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 use packed_struct::prelude::*;
+use crate::message_types::{TemperatureMinMax, TemperatureRange};
 
 const FAHRENHEIT_SCALE: f64 = 1.0;
 const CELSIUS_SCALE: f64 = 0.5;
@@ -16,7 +17,7 @@ pub struct ProtocolTemperature {
 }
 
 impl ProtocolTemperature {
-  pub fn step(&self, direction: Direction) -> anyhow::Result<SetTemperature> {
+  pub fn step(&self, direction: Direction, range: &TemperatureRange, min_maxes: &TemperatureMinMax) -> anyhow::Result<SetTemperature> {
     let factor = if direction == Direction::Up { 1.0 } else { -1.0 };
     let temperature = match self.raw_scale {
       TemperatureScale::Fahrenheit => {
@@ -26,6 +27,14 @@ impl ProtocolTemperature {
         Temperature::from_celsius(self.temperature.as_celsius() + CELSIUS_SCALE * factor)
       }
     };
+    let min_max = match range {
+      TemperatureRange::Low => min_maxes.low_range,
+      TemperatureRange::High => min_maxes.high_range,
+    };
+    if temperature > min_max.1 || temperature < min_max.0 {
+      return Err(anyhow!("Step to {:?} outside of min/max range ({:?} - {:?})",
+          temperature, min_max.0, min_max.1));
+    }
     self.raw_scale.new_set_temperature(&temperature)
   }
 }

@@ -216,14 +216,24 @@ impl <W: Write + Send> EventHandler<W> {
   }
 
   fn handle_temp_updown(&mut self, direction: Direction) -> Result<(), ()> {
-    let current_temp = self.state.topside_state_machine.context.status
+    let (current_temp, range) = self.state.topside_state_machine.context.status
         .as_ref()
         .map(|m| {
-          m.message.v1.set_temperature.clone()
+          (&m.message.v1.set_temperature,
+            &m.message.v1.temperate_range)
         })
         .ok_or(())?;
-    let temperature = current_temp.step(direction)
-        .map_err(drop)?;
+    let min_maxes = self.state.topside_state_machine.context.settings0x04
+        .as_ref()
+        .map(|m| &m.min_max_temps)
+        .ok_or(())?;
+    let temperature = match current_temp.step(direction, range, min_maxes) {
+      Ok(t) => t,
+      Err(e) => {
+        warn!("Can't set temp: {e}");
+        return Err(());
+      }
+    };
     info!("Setting temp to: {temperature:?}");
     let mt = MessageType::SetTemperatureRequest { temperature };
     self.enqueue_message(mt);

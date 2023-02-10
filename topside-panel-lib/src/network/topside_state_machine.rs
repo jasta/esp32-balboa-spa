@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 use log::{debug, info};
-use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
+use balboa_spa_messages::message_types::{ConfigurationResponseMessage, InformationResponseMessage, MessageType, PreferencesResponseMessage, Settings0x04ResponseMessage, SettingsRequestMessage, StatusUpdateMessage};
 use common_lib::message_state_machine::{MessageState, MessageStateMachine, SmResult, StateArgs};
 use common_lib::message_state_machine::SmResult::{HandledNoReply, NotHandled, SendReply};
 
@@ -10,6 +10,7 @@ pub type TopsideStateMachine = MessageStateMachine<StateWaitingForCts>;
 #[derive(Default, Debug)]
 pub struct TopsideContext {
   pub info: Option<InformationResponseMessage>,
+  pub settings0x04: Option<Settings0x04ResponseMessage>,
   pub config: Option<ConfigurationResponseMessage>,
   pub status: Option<ReceivedStatusMessage>,
   pub outbound_messages: VecDeque<MessageType>,
@@ -32,7 +33,7 @@ impl ReceivedStatusMessage {
 
 impl TopsideContext {
   pub fn got_it_all(&self) -> bool {
-    self.info.is_some() && self.config.is_some()
+    self.info.is_some() && self.settings0x04.is_some() && self.config.is_some()
   }
 }
 
@@ -52,6 +53,8 @@ impl MessageState for StateWaitingForCts {
       MessageType::ClearToSend() => {
         let request = if args.context.info.is_none() {
           Some(SettingsRequestMessage::Information)
+        } else if args.context.settings0x04.is_none() {
+          Some(SettingsRequestMessage::Settings0x04)
         } else if args.context.config.is_none() {
           Some(SettingsRequestMessage::Configuration)
         } else {
@@ -86,6 +89,11 @@ impl MessageState for StateWaitingForResponse {
       MessageType::InformationResponse(m) => {
         debug!("Got information: {m:?}");
         args.context.info = Some(m.clone());
+        HandledNoReply
+      }
+      MessageType::Settings0x04Response(m) => {
+        debug!("Got settings 0x04: {m:?}");
+        args.context.settings0x04 = Some(m.clone());
         HandledNoReply
       }
       MessageType::ConfigurationResponse(m) => {

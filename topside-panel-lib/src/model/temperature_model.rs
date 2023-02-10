@@ -1,11 +1,8 @@
 use log::info;
-use balboa_spa_messages::message_types::TemperatureRange;
+use balboa_spa_messages::message_types::{TemperatureRange, TemperatureMinMax};
 use balboa_spa_messages::temperature::{ProtocolTemperature, TemperatureScale};
 use measurements::Temperature;
 use num_traits::cast::ToPrimitive;
-
-const LOW_RANGE_C: [f64; 2] = [10.0, 36.0];
-const HIGH_RANGE_C: [f64; 2] = [26.5, 40.0];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TemperatureRangeModel {
@@ -15,18 +12,19 @@ pub struct TemperatureRangeModel {
 }
 
 impl TemperatureRangeModel {
-  pub fn new(range: TemperatureRange, scale: TemperatureScale) -> Self {
-    let values = match range {
-      TemperatureRange::Low => LOW_RANGE_C,
-      TemperatureRange::High => HIGH_RANGE_C,
+  pub fn new(ranges: TemperatureMinMax, range: TemperatureRange, scale: TemperatureScale) -> Self {
+    let min_max_temps = match range {
+      TemperatureRange::Low => ranges.low_range,
+      TemperatureRange::High => ranges.high_range,
     };
 
-    let display_values = values.map(|v| {
-      TemperatureModel::new(Temperature::from_celsius(v), scale).display
-    });
+    let display = (
+      TemperatureModel::new(min_max_temps.0, scale).display,
+      TemperatureModel::new(min_max_temps.1, scale).display
+    );
 
     Self {
-      display: (display_values[0], display_values[1]),
+      display,
       range,
       scale,
     }

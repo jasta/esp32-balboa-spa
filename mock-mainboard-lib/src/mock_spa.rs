@@ -1,5 +1,5 @@
 use chrono::{Timelike, Utc};
-use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, PumpConfig, PumpStatus, RelayStatus, ReminderType, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureRange};
+use balboa_spa_messages::message_types::{Boolean, ClockMode, ConfigurationResponseMessage, FaultResponseMessage, FilterMode, HeatingMode, HeatingState, InitializationMode, PumpConfig, PumpStatus, RelayStatus, ReminderType, Settings0x04ResponseMessage, SpaState, StatusUpdateMessage, StatusUpdateResponseV1, TemperatureMinMax, TemperatureRange};
 use balboa_spa_messages::parsed_enum::ParsedEnum;
 use balboa_spa_messages::temperature::{ProtocolTemperature, SetTemperature, Temperature, TemperatureScale};
 use balboa_spa_messages::time::ProtocolTime;
@@ -162,6 +162,20 @@ impl MockSpa {
       v1: status,
       v2: None,
       v3: None,
+    }
+  }
+
+  pub fn as_settings0x04(&self) -> Settings0x04ResponseMessage {
+    let temps: Vec<_> = [50, 90, 80, 104].into_iter()
+        .map(|t| {
+          Temperature::from_fahrenheit(f64::from(t))
+        })
+        .collect();
+    Settings0x04ResponseMessage {
+      min_max_temps: TemperatureMinMax {
+        low_range: (temps[0], temps[1]),
+        high_range: (temps[1], temps[2]),
+      },
     }
   }
 

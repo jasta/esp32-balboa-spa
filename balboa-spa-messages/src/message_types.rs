@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use measurements::Temperature;
 use num_derive::FromPrimitive;
 use num_derive::ToPrimitive;
 use num_traits::{FromPrimitive, ToPrimitive};
@@ -616,14 +617,27 @@ pub struct FilterCycle {
 
 #[derive(Debug, Clone)]
 pub struct Settings0x04ResponseMessage {
-  pub unknown: Vec<u8>,
+  pub low_temp_range: (Temperature, Temperature),
+  pub high_temp_range: (Temperature, Temperature),
 }
 
 impl TryFrom<&Settings0x04ResponseMessage> for Vec<u8> {
   type Error = PayloadEncodeError;
 
   fn try_from(value: &Settings0x04ResponseMessage) -> Result<Self, Self::Error> {
-    Ok(value.unknown.to_owned())
+    let mut cursor = Cursor::new(Vec::new());
+
+    cursor.write_all(&[0u8; 2])?;
+
+    for (min, max) in [&value.low_temp_range, &value.high_temp_range] {
+      for t in [min, max] {
+        cursor.write_u8(t.as_fahrenheit().to_u8().unwrap_or(0xff))?;
+      }
+    }
+
+    cursor.write_all(&[0u8; 3])?;
+
+    Ok(cursor.into_inner())
   }
 }
 
@@ -631,8 +645,16 @@ impl TryFrom<&[u8]> for Settings0x04ResponseMessage {
   type Error = PayloadParseError;
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    let mut cursor = Cursor::new(value);
+    cursor.set_position(2);
+    let mut temps = Vec::with_capacity(4);
+    for _ in 0..temps.capacity() {
+      let t = cursor.read_u8()?;
+      temps.push(Temperature::from_fahrenheit(f64::from(t)));
+    }
     Ok(Self {
-      unknown: value.to_owned(),
+      low_temp_range: (temps[0], temps[1]),
+      high_temp_range: (temps[2], temps[3]),
     })
   }
 }
@@ -960,7 +982,7 @@ impl TryFrom<&WifiModuleIdentificationMessage> for Vec<u8> {
 
   fn try_from(value: &WifiModuleIdentificationMessage) -> Result<Self, Self::Error> {
     let mut cursor = Cursor::new(Vec::new());
-    cursor.write_all(&[0u8; 2])?;
+    cursor.write_all(&[0u8; 3])?;
     cursor.write_all(&value.mac)?;
     cursor.write_all(&[0u8; 8])?;
     cursor.write_all(&value.mac[..3])?;
@@ -975,7 +997,7 @@ impl TryFrom<&[u8]> for WifiModuleIdentificationMessage {
 
   fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
     let mut cursor = Cursor::new(value);
-    cursor.set_position(2);
+    cursor.set_position(3);
     let mut mac = [0u8; 6];
     cursor.read_exact(&mut mac)?;
     Ok(Self { mac })

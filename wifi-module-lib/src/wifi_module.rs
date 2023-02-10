@@ -201,7 +201,7 @@ impl <W: Write + Send> EventHandler<W> {
             WifiModuleIdentificationMessage {
               mac: self.state.advertisement.mac,
             }
-          ).to_message(message.channel)?);
+          ).to_message(Channel::WifiModule)?);
         } else {
           info!("Got existing channel request on channel={:?} ???", message.channel);
         }
@@ -218,7 +218,7 @@ impl <W: Write + Send> EventHandler<W> {
     self.state.wifi_state_machine.context.outbound_messages.push_back(message);
   }
 
-  fn enqueue_message_to_app(&mut self, message: Message) {
+  fn enqueue_message_to_app(&mut self, mut message: Message) {
     self.events_tx.send_to_all(&RelayMainboardMessage(message));
   }
 }

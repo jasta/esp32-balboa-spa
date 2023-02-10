@@ -33,7 +33,11 @@ impl MessageState for StateRelaying {
         SendReply(reply.to_message(*args.channel))
       }
       mt => {
-        let message = mt.clone().to_message(*args.channel)
+        let relay_channel = match args.channel {
+          Channel::MulticastBroadcast => Channel::MulticastBroadcast,
+          _ => Channel::WifiModule,
+        };
+        let message = mt.clone().to_message(relay_channel)
             .expect("Failed to re-encode message");
         args.context.for_relay_messages.push_back(message);
 

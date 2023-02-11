@@ -1,4 +1,4 @@
-pub mod wifi_module;
+pub mod wifi_module_client;
 mod handling_error;
 mod app_state;
 mod wifi_state_machine;
@@ -8,3 +8,4 @@ mod command;
 mod event;
 mod broadcaster;
 pub mod advertisement;
+pub mod wifi_manager;

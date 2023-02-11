@@ -1,5 +1,8 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::io::{Read, Write};
+use std::ops::DispatchFromDyn;
+use std::process::Output;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
@@ -7,15 +10,31 @@ use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, SettingsRequestMessage};
+use debounced_pin::{ActiveHigh, ActiveLow, Debounce, DebouncedInputPin, DebounceState};
+use display_interface_spi::SPIInterfaceNoCS;
+use embedded_graphics::prelude::DrawTarget;
+use embedded_hal::blocking::delay::DelayUs;
+use embedded_hal::digital::v2::{InputPin, OutputPin, PinState};
+use embedded_hal::spi::MODE_0;
+use esp_idf_hal::delay::Ets;
+use esp_idf_hal::gpio::{AnyInputPin, AnyOutputPin, Input, InputMode, PinDriver};
 use esp_idf_hal::peripherals::Peripherals;
+use esp_idf_hal::spi;
+use esp_idf_hal::spi::{Dma, SpiAnyPins, SpiDeviceDriver, SpiDriver, SpiSingleDeviceDriver};
+use esp_idf_hal::spi::config::V02Type;
+use esp_idf_hal::units::FromValueType;
+use esp_idf_sys::EspError;
 use log::{debug, error, info, warn};
+use mipidsi::{Builder, ColorOrder, Orientation};
 use mock_mainboard_lib::transport::Transport;
-use ws2812_esp32_rmt_driver::RGB8;
-use esp_app::esp32c3_devkit_m;
-use esp_app::esp_uart_transport::EspUartTransport;
+use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
+use topside_panel_lib::model::button::Button;
+use topside_panel_lib::network::topside_panel::TopsidePanel;
+use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl, LcdDevice};
+use topside_panel_lib::view::user_input_event::UserInputEvent;
+use topside_panel_lib::view::window_proxy::WindowProxy;
 
-use esp_app::esp_ws2812_driver::EspWs2812Driver;
-use esp_app::status_led::{SmartLedsStatusLed, StatusLed};
+use esp_app::esp_uart_transport::EspUartTransport;
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();
@@ -25,167 +44,156 @@ fn main() -> anyhow::Result<()> {
   let peripherals = Peripherals::take()
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;
 
-  let onboard_led = esp32c3_devkit_m::onboard_led!(peripherals)?;
-  let status_led = SmartLedsStatusLed::new(onboard_led.into_inner());
-
+  info!("Initializing RS485 UART transport...");
   let transport = EspUartTransport::new(
       peripherals.uart1,
-      peripherals.pins.gpio5,
-      peripherals.pins.gpio4,
-      Some(peripherals.pins.gpio3),
+      peripherals.pins.gpio0,
+      peripherals.pins.gpio1,
+      Some(peripherals.pins.gpio9),
       None)?;
 
-  // let (mut rx, tx) = transport.split();
-  // let mut buf = [0u8; 1];
-  // loop {
-  //   rx.read_exact(&mut buf)?;
-  //   info!("Got {buf:02X?}");
-  // }
+  info!("Initializing TFT display...");
+  let tft_device = SpiDeviceDriver::new_single(
+      peripherals.spi2,
+      peripherals.pins.gpio6,
+      peripherals.pins.gpio7,
+      None,
+      Dma::Disabled,
+      None,
+      &spi::config::Config::new()
+          .baudrate(40.MHz().into())
+          .data_mode(V02Type(MODE_0).into())
+          .write_only(true)
+  )?;
+  let display_interface = SPIInterfaceNoCS::new(
+      tft_device,
+      peripherals.pins.gpio4);
+  let mut display = Builder::ili9341_rgb565(display_interface)
+      .with_orientation(Orientation::Landscape(false))
+      .with_color_order(ColorOrder::Bgr)
+      .init(&mut Ets, None)
+      .unwrap();
 
-  let panel = TopsidePanel::new(transport, status_led);
-  panel.run_loop()?;
+  info!("Setting up app...");
+  let lcd_device = TftAndMembraneSwitchDevice::new(
+      display,
+      MembraneSwitchWindowProxy::new(vec![
+        (debounced(peripherals.pins.gpio2)?, Button::Up),
+        (debounced(peripherals.pins.gpio3)?, Button::Down),
+      ]),
+      HalBacklightControl { pin: PinDriver::output(peripherals.pins.gpio5)? });
+  let topside_app = TopsidePanelApp::new(
+      transport,
+      lcd_device,
+      EspWifiManager);
+
+  info!("Starting app...");
+  topside_app.run_loop();
+
   Ok(())
 }
 
-struct TopsidePanel<R, W, L> {
-  status_led: L,
-  reader: FramedReader<R>,
-  writer: FramedWriter<W>,
-  state: GetVersionTestState,
-  my_channel: Option<Channel>,
-  model_number: Option<String>,
+fn debounced<P: InputMode>(
+    pin: P
+) -> Result<DebouncedInputPin<PinDriver<'static, AnyInputPin, Input>, ActiveLow>, EspError> {
+  let raw_input = PinDriver::input(pin)?;
+  Ok(DebouncedInputPin::new(raw_input, ActiveLow))
 }
 
-const MY_CLIENT_HASH: u16 = 0xcafe;
+struct TftAndMembraneSwitchDevice<DISP, BUTTON, BACKLIGHT> {
+  display: DISP,
+  buttons: MembraneSwitchWindowProxy<BUTTON, ActiveLow>,
+  backlight: HalBacklightControl<BACKLIGHT>,
+}
 
-impl<R, W, L> TopsidePanel<R, W, L>
-where
-    R: Read,
-    W: Write,
-    L: StatusLed,
-{
-  pub fn new(transport: impl Transport<R, W>, status_led: L) -> Self {
-    let (raw_reader, raw_writer) = transport.split();
-    let reader = FramedReader::new(raw_reader);
-    let writer = FramedWriter::new(raw_writer);
+impl<DISP, BUTTON, BACKLIGHT> TftAndMembraneSwitchDevice<DISP, BUTTON, BACKLIGHT> {
+  pub fn new(
+      display: DISP,
+      buttons: MembraneSwitchWindowProxy<BUTTON, ActiveLow>,
+      backlight: HalBacklightControl<BACKLIGHT>,
+  ) -> Self {
     Self {
-      status_led,
-      reader,
-      writer,
-      state: GetVersionTestState::NeedChannelWaitingCTS,
-      my_channel: None,
-      model_number: None,
+      display,
+      buttons,
+      backlight,
     }
-  }
-
-  pub fn run_read_test(mut self) -> anyhow::Result<()> {
-    loop {
-      let message = self.reader.next_message()?;
-      info!("Got {message:?}");
-    }
-  }
-
-  pub fn run_loop(mut self) -> anyhow::Result<()> {
-    self.maybe_update_status_led();
-    loop {
-      let message = self.reader.next_message()?;
-      info!("<= {message:?}");
-
-      match MessageType::try_from(&message) {
-        Ok(mt) => {
-          match (message.channel, mt) {
-            (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
-              if matches!(self.state,
-                  GetVersionTestState::NeedChannelWaitingCTS |
-                  GetVersionTestState::NeedChannelWaitingAssignment) {
-                self.send_message(
-                  &MessageType::ChannelAssignmentRequest {
-                    device_type: 0x0,
-                    client_hash: MY_CLIENT_HASH,
-                  }.to_message(Channel::MulticastChannelAssignment)?)?;
-                self.move_to_state(GetVersionTestState::NeedChannelWaitingAssignment);
-              }
-            }
-            (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, client_hash }) => {
-              if self.state == GetVersionTestState::NeedChannelWaitingAssignment &&
-                  client_hash == MY_CLIENT_HASH {
-                self.my_channel = Some(channel);
-                self.send_message(&MessageType::ChannelAssignmentAck().to_message(channel)?)?;
-                self.move_to_state(GetVersionTestState::NeedInfoWaitingCTS);
-              }
-            }
-            (channel, MessageType::ClearToSend()) => {
-              if self.my_channel == Some(channel) {
-                match self.state {
-                  GetVersionTestState::NeedInfoWaitingCTS => {
-                    self.send_message(
-                      &MessageType::SettingsRequest(SettingsRequestMessage::Information)
-                          .to_message(channel)?)?;
-                    self.move_to_state(GetVersionTestState::NeedInfoWaitingInfo);
-                  }
-                  _ => {
-                    self.send_message(&MessageType::NothingToSend().to_message(channel)?)?;
-                  }
-                }
-              }
-            }
-            (channel, MessageType::InformationResponse(info)) => {
-              if self.state == GetVersionTestState::NeedInfoWaitingInfo &&
-                  self.my_channel == Some(channel) {
-                info!("Got system model number: {}", info.system_model_number);
-                self.model_number = Some(info.system_model_number);
-                self.move_to_state(GetVersionTestState::GotInfoIdle);
-              }
-            }
-            (channel, MessageType::StatusUpdate(status)) => {
-              debug!("system_model_number={:?}", self.model_number);
-            }
-            _ => warn!("Unhandled: {message:?}"),
-          }
-        }
-        Err(e) => error!("{e:?}"),
-      }
-    }
-  }
-
-  fn send_message(&mut self, message: &Message) -> anyhow::Result<()> {
-    info!("=> {message:?}");
-    self.writer.write(message)
-  }
-
-  fn move_to_state(&mut self, new_state: GetVersionTestState) {
-    let old_state = &self.state;
-    if old_state != &new_state {
-      debug!("Moving from {old_state:?} to {new_state:?}");
-      self.state = new_state;
-      self.maybe_update_status_led();
-    }
-  }
-
-  fn maybe_update_status_led(&mut self) {
-    if let Err(e) = self.update_status_led() {
-      error!("Failed to update status LED: {e:?}");
-    }
-  }
-
-  fn update_status_led(&mut self) -> Result<(), L::Error> {
-    let color_hex: u32 = match self.state {
-      GetVersionTestState::NeedChannelWaitingCTS => 0x010000,
-      GetVersionTestState::NeedChannelWaitingAssignment => 0x000001,
-      GetVersionTestState::NeedInfoWaitingCTS => 0x020100,
-      GetVersionTestState::NeedInfoWaitingInfo => 0x020100,
-      GetVersionTestState::GotInfoIdle => 0x000100,
-    };
-    let c = color_hex.to_be_bytes();
-    self.status_led.set_color(RGB8::new(c[1], c[2], c[3]))
   }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-enum GetVersionTestState {
-  NeedChannelWaitingCTS,
-  NeedChannelWaitingAssignment,
-  NeedInfoWaitingCTS,
-  NeedInfoWaitingInfo,
-  GotInfoIdle,
+impl<DISP, BUTTON, BACKLIGHT> LcdDevice for TftAndMembraneSwitchDevice<DISP, BUTTON, BACKLIGHT> {
+  type Display = DISP;
+  type Window = MembraneSwitchWindowProxy<BUTTON, ActiveLow>;
+  type Backlight = HalBacklightControl<BACKLIGHT>;
+
+  fn setup(self) -> (Self::Display, Self::Window, Self::Backlight) {
+    (self.display, self.buttons, self.backlight)
+  }
+}
+
+struct MembraneSwitchWindowProxy<I, A> {
+  event_update_interval: Duration,
+  button_map: Vec<(DebouncedInputPin<I, A>, Button)>,
+}
+
+impl<I, A> MembraneSwitchWindowProxy<I, A> {
+  pub fn new(button_map: Vec<(DebouncedInputPin<I, A>, Button)>) -> Self {
+    let debounced_map: Vec<_> = button_map.into_iter()
+        .map(|mapping| {
+          (DebouncedInputPin::new(mapping.0, A), mapping.1)
+        })
+        .collect();
+    Self {
+      event_update_interval: Duration::from_millis(1),
+      button_map: debounced_map,
+    }
+  }
+}
+
+impl<I> WindowProxy<()> for MembraneSwitchWindowProxy<I, ActiveLow>
+where
+    I: InputPin,
+    I::Error: Display,
+{
+  fn event_update_interval(&self) -> Duration {
+    self.event_update_interval
+  }
+
+  fn events(&mut self) -> Vec<UserInputEvent> {
+    self.button_map.iter_mut()
+        .filter_map(|(physical, virt)| {
+          match physical.update() {
+            Ok(DebounceState::Active) => Some(virt),
+            Err(e) => {
+              warn!("Could not detect button {:?}: {e}", virt);
+              None
+            }
+            _ => None,
+          }
+        })
+        .collect()
+  }
+
+  fn update(&mut self, _display: &()) {
+    // Not relevant for physical displays...
+  }
+}
+
+struct HalBacklightControl<O> {
+  pin: O,
+}
+
+impl<O> BacklightControl for HalBacklightControl<O>
+where
+    O: OutputPin,
+    O::Error: Display,
+{
+  fn set_brightness(&mut self, value: BacklightBrightness) {
+    let state = match value {
+      BacklightBrightness::Off => PinState::Low,
+      BacklightBrightness::FullOn => PinState::High,
+    };
+    if let Err(e) = self.pin.set_state(state) {
+      warn!("Could not set backlight state: {e}");
+    }
+  }
 }

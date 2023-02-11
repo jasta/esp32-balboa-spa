@@ -3,6 +3,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use esp_idf_hal::prelude::*;
 use esp_idf_svc::eventloop::EspEventLoop;
+use esp_idf_svc::httpd::Server;
 use esp_idf_sys as _;
 use log::{info, warn};
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
@@ -17,6 +18,8 @@ fn main() -> anyhow::Result<()> {
   let peripherals = Peripherals::take()
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;
   let event_loop = EspEventLoop::take()?;
+
+  Server
 
   let transport = EspUartTransport::new(
       peripherals.uart1,

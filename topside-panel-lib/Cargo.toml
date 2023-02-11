@@ -9,6 +9,7 @@ anyhow = "1"
 thiserror = "1"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 common-lib = { path = "../common-lib" }
+wifi-module-lib = { path = "../wifi-module-lib" }
 measurements = "0.11.0"
 embedded-graphics = "0.7.1"
 lvgl = { git = "https://github.com/jasta/lvgl-rs", branch = "esp32-fixup" }

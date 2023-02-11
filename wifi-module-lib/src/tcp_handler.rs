@@ -8,7 +8,7 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use crate::broadcaster::BroadcastReceiver;
 use crate::command::Command;
-use crate::event::Event;
+use crate::event::RelayEvent;
 
 const TCP_PORT: u16 = 4257;
 
@@ -18,14 +18,14 @@ pub(crate) struct TcpListenerHandler {
   logger: MessageLogger,
   listener: TcpListener,
   commands_tx: SyncSender<Command>,
-  events_rx: BroadcastReceiver<Event>,
+  events_rx: BroadcastReceiver<RelayEvent>,
 }
 
 impl TcpListenerHandler {
   pub fn setup(
       logger: MessageLogger,
       commands_tx: SyncSender<Command>,
-      events_rx: BroadcastReceiver<Event>
+      events_rx: BroadcastReceiver<RelayEvent>
   ) -> io::Result<Self> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", TCP_PORT))?;
     Ok(Self {
@@ -63,7 +63,7 @@ struct TcpStreamHandler {
   stream: TcpStream,
   peer: SocketAddr,
   commands_tx: SyncSender<Command>,
-  events_rx: BroadcastReceiver<Event>,
+  events_rx: BroadcastReceiver<RelayEvent>,
   logger: MessageLogger,
 }
 
@@ -117,7 +117,7 @@ impl<'a> TcpStreamReader<'a> {
 
 struct TcpStreamWriter<'a> {
   writer: FramedWriter<&'a TcpStream>,
-  events_rx: BroadcastReceiver<Event>,
+  events_rx: BroadcastReceiver<RelayEvent>,
   logger: &'a MessageLogger,
 }
 
@@ -125,7 +125,7 @@ impl<'a> TcpStreamWriter<'a> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       match self.events_rx.rx().recv()? {
-        Event::RelayMainboardMessage(message) => {
+        RelayEvent::ReceivedMainboardMessage(message) => {
           self.logger.log(MessageDirection::Outbound, &message);
           self.writer.write(&message)?
         }

@@ -19,21 +19,18 @@ use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
 use crate::network::app_state::AppState;
 use common_lib::channel_filter::ChannelFilter;
-use crate::network::topside_state_machine::{StateReadingStatus, TopsideStateKind, TopsideStateMachine};
-use common_lib::cts_state_machine::{CtsStateKind, CtsStateMachine};
 use crate::network::handling_error::HandlingError;
 use crate::network::handling_error::HandlingError::FatalError;
-use common_lib::message_state_machine::MessageHandlingError;
 use crate::model::view_model::ViewModel;
 use crate::model::view_model_event_handle::{Event, ViewModelEventHandle};
 use crate::model::button::Button;
 
-pub struct TopsidePanel<R, W> {
+pub struct TopsidePanelClient<R, W> {
   framed_reader: FramedReader<R>,
   framed_writer: FramedWriter<W>,
 }
 
-impl<R: Read, W: Write> TopsidePanel<R, W> {
+impl<R: Read, W: Write> TopsidePanelClient<R, W> {
   pub fn new(transport: impl Transport<R, W>) -> Self {
     let (raw_reader, raw_writer) = transport.split();
     let framed_reader = FramedReader::new(raw_reader);

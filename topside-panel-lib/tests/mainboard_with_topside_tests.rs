@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use log::LevelFilter;
 use common_lib::transport::StdTransport;
-use topside_panel_lib::network::topside_panel::TopsidePanel;
+use topside_panel_lib::network::topside_panel_client::TopsidePanelClient;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::model::view_model::{ConnectionState, ViewModel};
@@ -20,7 +20,7 @@ fn test_get_model_updates() -> anyhow::Result<()> {
       .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX);
 
   let bus_transport = StdTransport::new(client_in, client_out);
-  let topside = TopsidePanel::new(bus_transport);
+  let topside = TopsidePanelClient::new(bus_transport);
 
   let (topside_control, topside_event, topside_runner) = topside.into_runner();
   let (main_control, main_runner) = main_board.into_runner();

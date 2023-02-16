@@ -55,11 +55,11 @@ impl TemperatureWidget {
     })
   }
 
-  pub fn set_range(&mut self, scale: (TemperatureDisplay, TemperatureDisplay)) -> LvResult<()> {
-    self.linemeter.set_range(scale.0.int_value, scale.1.int_value)
+  pub fn set_range(&mut self, min: &TemperatureDisplay, max: &TemperatureDisplay) -> LvResult<()> {
+    self.linemeter.set_range(min.int_value, max.int_value)
   }
 
-  pub fn set_target(&mut self, value: TemperatureDisplay) -> LvResult<()> {
+  pub fn set_target(&mut self, value: &TemperatureDisplay) -> LvResult<()> {
     self.linemeter.set_value(value.int_value)?;
     self.main_label.set_temperature(value)?;
     Ok(())
@@ -69,8 +69,8 @@ impl TemperatureWidget {
     self.action_label.set_text(CString::new(value).unwrap().as_c_str())
   }
 
-  pub fn set_current(&mut self, value: TemperatureDisplay) -> LvResult<()> {
-    todo!()
+  pub fn set_current(&mut self, value: Option<&TemperatureDisplay>) -> LvResult<()> {
+    Ok(())
   }
 }
 
@@ -113,9 +113,9 @@ impl TemperatureLabel {
     })
   }
 
-  pub fn set_temperature(&mut self, display: TemperatureDisplay) -> LvResult<()> {
-    if self.current_value != Some(display) {
-      self.current_value = Some(display);
+  pub fn set_temperature(&mut self, display: &TemperatureDisplay) -> LvResult<()> {
+    if self.current_value.as_ref() != Some(display) {
+      self.current_value = Some(display.clone());
 
       info!("UI temp: {display:?}");
 

@@ -17,3 +17,4 @@ pipe = "0.4.0"
 embedded-graphics = "0.7.1"
 embedded-graphics-simulator = "0.4.0"
 clap = { version = "4.1.4", features = ["derive"] }
+enum-kinds = "0.5.1"

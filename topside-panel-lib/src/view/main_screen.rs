@@ -4,15 +4,17 @@ use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::PixelColor;
 use log::warn;
 use lvgl::widgets::{Arc, ArcPart, Label, Linemeter};
-use crate::model::view_model::ViewModel;
+use wifi_module_lib::view_model::Mode;
+use crate::model::view_model::{HotTubModel, ViewModel};
 use crate::view::palette::{Palette, PaletteAware};
 use crate::view::palette_styles::PaletteStyles;
+use crate::view::screen_flipper::{BoxedScreen, Screen, ScreenSelector};
 use crate::view::temperature_widget::TemperatureWidget;
 
 pub(crate) const WIDGET_FG_STROKE_COLOR: u32 = 0xfffffff;
 pub(crate) const LABEL_PRIMARY_COLOR: u32 = 0xffffff;
 
-const NORMAL: Palette = Palette {
+pub(crate) const NORMAL: Palette = Palette {
   window_bg: 0x393f47,
   widget_fill: 0x3d444b,
   widget_bg_stroke: 0x434a52,
@@ -53,12 +55,8 @@ impl Styles {
 }
 
 impl MainScreen {
-  pub fn setup<T, C>(ui: &UI<T, C>) -> LvResult<Self>
-  where
-      T: DrawTarget<Color = C>,
-      C: PixelColor + From<Color>,
-  {
-    let mut screen = ui.scr_act()?;
+  pub fn new() -> LvResult<Self> {
+    let mut screen = Obj::default();
 
     let styles = Styles::new();
     let temperature_widget = TemperatureWidget::new(&mut screen)?;
@@ -71,20 +69,6 @@ impl MainScreen {
     })
   }
 
-  pub fn bind(&mut self, model: ViewModel) -> LvResult<()> {
-    if let Some(model) = model.last_model {
-      self.set_is_heating(model.is_heating)?;
-      self.temperature_widget.set_range(model.temp_range.display)?;
-      self.temperature_widget.set_target(model.set_temp.display)?;
-      let action_label = if model.is_heating { "HEATING" } else { "" };
-      self.temperature_widget.set_action_text(action_label)?;
-    } else {
-      warn!("Initializing states not implemented...");
-      self.set_is_heating(false)?;
-    }
-    Ok(())
-  }
-
   fn set_is_heating(&mut self, is_heating: bool) -> LvResult<()> {
     if self.is_heating_palette != Some(is_heating) {
       self.is_heating_palette = Some(is_heating);
@@ -94,6 +78,54 @@ impl MainScreen {
       self.screen.add_style(Part::Main, palette.window_bg.clone())?;
       self.temperature_widget.apply(palette)?;
     }
+    Ok(())
+  }
+
+  fn get_hot_tub_model(model: &ViewModel) -> Option<&HotTubModel> {
+    model.last_model.as_ref()
+  }
+}
+
+impl ScreenSelector for MainScreen {
+  fn kind() -> &'static str {
+    "main"
+  }
+
+  fn create() -> LvResult<BoxedScreen> {
+    Ok(Box::new(MainScreen::new()?))
+  }
+
+  fn accept_model(model: &ViewModel) -> bool {
+    if MainScreen::get_hot_tub_model(model).is_none() {
+      return false;
+    }
+
+    // Stick with the loading screen until Wi-Fi at least initializes in case we
+    // are supposed to go the provisioning screen.
+    match &model.wifi_model {
+      None => true,
+      Some(wifi_model) => {
+        !matches!(wifi_model.mode, Mode::Initializing)
+      }
+    }
+  }
+}
+
+impl Screen for MainScreen {
+  fn get_root(&self) -> &Obj {
+    &self.screen
+  }
+
+  fn bind_model(&mut self, model: ViewModel) -> LvResult<()> {
+    let model = MainScreen::get_hot_tub_model(&model).unwrap();
+    self.set_is_heating(model.is_heating)?;
+    let range = model.temp_range.display;
+    self.temperature_widget.set_range(&range.0, &range.1)?;
+    self.temperature_widget.set_target(&model.set_temp.display)?;
+    self.temperature_widget.set_current(
+        model.current_temp.as_ref().map(|t| &t.display))?;
+    let action_label = if model.is_heating { "HEATING" } else { "" };
+    self.temperature_widget.set_action_text(action_label)?;
     Ok(())
   }
 }

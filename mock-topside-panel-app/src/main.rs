@@ -1,19 +1,14 @@
 use std::thread;
 use std::time::Duration;
 use log::info;
-use common_lib::bus_transport::BusTransport;
 use common_lib::transport::StdTransport;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
-use topside_panel_lib::network::topside_panel_client::TopsidePanelClient;
-use wifi_module_lib::wifi_module_client::WifiModuleClient;
 use std::io::Write;
 use clap::Parser;
 use mock_wifi_manager::MockWifiManager;
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
-use topside_panel_lib::view::ui_handler::UiHandler;
-use wifi_module_lib::advertisement::Advertisement;
-use crate::args::{Args, ConnectMode};
+use crate::args::{Args, ConnectMode, WifiMode};
 use crate::simulator_window::SimulatorDevice;
 
 mod simulator_window;
@@ -51,10 +46,19 @@ fn main() -> anyhow::Result<()> {
       .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX)
       .set_init_delay(Duration::from_secs(5));
 
+  let mock_wifi = MockWifiManager::new();
+  let wifi_mode_control = mock_wifi.new_control_handle();
+  match args.wifi_mode {
+    WifiMode::Provision => wifi_mode_control.drive_first_run(),
+    WifiMode::ProvisionForever => wifi_mode_control.drive_dpp_forever(),
+    WifiMode::Normal => wifi_mode_control.drive_subsequent_run(),
+    WifiMode::Fail => wifi_mode_control.drive_cant_connect(),
+  }
+
   let topside_app = TopsidePanelApp::new(
       StdTransport::new(client_in, client_out),
       SimulatorDevice,
-      Some(MockWifiManager::new()));
+      Some(mock_wifi));
 
   let (hottub_handle, hottub_runner) = main_board.into_runner();
   let hottub_thread = thread::Builder::new()

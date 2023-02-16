@@ -15,6 +15,7 @@ use crate::view::user_input_event::UserInputEvent;
 use crate::view::window_proxy::WindowProxy;
 use crate::model::view_model::ViewModel;
 use crate::view::backlight_manager::BacklightManager;
+use crate::view::screen_flipper::ScreenFlipper;
 
 /// Approximate time between each frame draw.
 const TARGET_DRAW_INTERVAL: Duration = Duration::from_millis(20);
@@ -51,7 +52,7 @@ where
     let mut ui = UI::init()?;
     ui.disp_drv_register(display)?;
 
-    let mut main = MainScreen::setup(&ui)?;
+    let mut screen_flipper = ScreenFlipper::new();
 
     let event_update_interval = window.event_update_interval();
     assert!(event_update_interval <= TARGET_DRAW_INTERVAL);
@@ -87,7 +88,7 @@ where
       }
 
       if let Some(model) = self.app_events.try_recv_latest().unwrap() {
-        main.bind(model)?;
+        screen_flipper.bind_model(model)?;
       }
 
       let now = Instant::now();

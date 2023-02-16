@@ -1,4 +1,4 @@
-use lvgl::style::Style;
+use lvgl::style::{Opacity, Style};
 use lvgl::State;
 use crate::view::color_util;
 use crate::view::palette::Palette;

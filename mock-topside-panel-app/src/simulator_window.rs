@@ -9,7 +9,7 @@ use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl,
 use topside_panel_lib::view::user_input_event::UserInputEvent;
 use topside_panel_lib::view::window_proxy::WindowProxy;
 
-const TARGET_WINDOW_UPDATE_INTERVAL: Duration = Duration::from_millis(1);
+const TARGET_WINDOW_UPDATE_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Default)]
 pub struct SimulatorDevice;
@@ -19,13 +19,13 @@ impl LcdDevice for SimulatorDevice {
   type Window = SimulatorWindowProxy;
   type Backlight = MockBacklight;
 
-  fn setup(self) -> (Self::Display, Self::Window) {
+  fn setup(self) -> (Self::Display, Self::Window, Self::Backlight) {
     let display = SimulatorDisplay::<Rgb565>::new(Size::new(320, 240));
     let output_settings = OutputSettingsBuilder::new()
         .scale(2)
         .build();
     let window = Window::new("Mock Topside Panel", &output_settings);
-    (display, SimulatorWindowProxy { window })
+    (display, SimulatorWindowProxy { window }, MockBacklight)
   }
 }
 

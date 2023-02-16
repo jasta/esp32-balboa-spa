@@ -4,12 +4,14 @@ use std::fmt::{Display, Formatter};
 use std::time::Instant;
 use balboa_spa_messages::message_types::TemperatureRange;
 use balboa_spa_messages::temperature::{ProtocolTemperature, TemperatureScale};
+use wifi_module_lib::wifi_module_client::WifiModuleClient;
 use crate::model::temperature_model::{TemperatureModel, TemperatureRangeModel};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewModel {
   pub conn_state: ConnectionState,
   pub last_model: Option<HotTubModel>,
+  pub wifi_model: Option<wifi_module_lib::view_model::ViewModel>,
 }
 
 impl Default for ViewModel {
@@ -17,6 +19,7 @@ impl Default for ViewModel {
     Self {
       conn_state: ConnectionState::WaitingForPeer,
       last_model: None,
+      wifi_model: None,
     }
   }
 }

@@ -12,6 +12,7 @@ use crate::model::view_model::{ConnectionState, DeviceCategory, DeviceLevel, Dev
 pub(crate) struct AppState {
   pub cts_state_machine: CtsStateMachine,
   pub topside_state_machine: TopsideStateMachine,
+  pub wifi_model: Option<wifi_module_lib::view_model::ViewModel>,
 }
 
 impl Default for AppState {
@@ -21,6 +22,7 @@ impl Default for AppState {
     Self {
       cts_state_machine: CtsStateMachine::default(),
       topside_state_machine,
+      wifi_model: None,
     }
   }
 }
@@ -42,6 +44,7 @@ impl AppState {
     ViewModel {
       conn_state,
       last_model,
+      wifi_model: self.wifi_model.clone(),
     }
   }
 

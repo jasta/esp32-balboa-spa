@@ -8,7 +8,7 @@ use balboa_spa_messages::framed_writer::FramedWriter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use crate::broadcaster::BroadcastReceiver;
 use crate::command::Command;
-use crate::event::RelayEvent;
+use crate::relay_event::RelayEvent;
 
 const TCP_PORT: u16 = 4257;
 
@@ -125,7 +125,7 @@ impl<'a> TcpStreamWriter<'a> {
   pub fn run_loop(mut self) -> anyhow::Result<()> {
     loop {
       match self.events_rx.rx().recv()? {
-        RelayEvent::ReceivedMainboardMessage(message) => {
+        RelayEvent::MessageForIpClient(message) => {
           self.logger.log(MessageDirection::Outbound, &message);
           self.writer.write(&message)?
         }

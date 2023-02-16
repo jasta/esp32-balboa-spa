@@ -88,9 +88,12 @@ fn main() -> anyhow::Result<()> {
       EspWifiManager);
 
   info!("Starting app...");
-  topside_app.run_loop();
+  let result = topside_app.run_loop();
+  if let Err(e) = result {
+    error!("Fatal error running topside panel: {e}");
+  }
 
-  Ok(())
+  panic!("main exit, rebooting...");
 }
 
 fn debounced<P: InputMode>(

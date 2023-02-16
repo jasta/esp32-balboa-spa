@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 use std::thread;
 use cstr_core::{CStr, CString};
 use embedded_graphics::pixelcolor::PixelColor;
+use common_lib::view_model_event_handle::ViewModelEventHandle;
 use crate::view::main_screen::MainScreen;
 use crate::network::topside_panel_client::ControlHandle;
 use crate::view::lcd_device::{BacklightBrightness, BacklightControl, LcdDevice};
 use crate::view::user_input_event::UserInputEvent;
 use crate::view::window_proxy::WindowProxy;
-use crate::model::view_model_event_handle::ViewModelEventHandle;
 use crate::model::button::Button;
+use crate::model::view_model::ViewModel;
 
 /// Approximate time between each frame draw.
 const TARGET_DRAW_INTERVAL: Duration = Duration::from_millis(20);
@@ -24,7 +25,7 @@ const BACKLIGHT_USER_WAIT: Duration = Duration::from_secs(30);
 pub struct UiHandler<DEV> {
   lcd_device: DEV,
   control_handle: ControlHandle,
-  model_events: ViewModelEventHandle,
+  app_events: ViewModelEventHandle<ViewModel>,
 }
 
 impl<DEV> UiHandler<DEV>
@@ -36,12 +37,12 @@ where
   pub fn new(
       lcd_panel: DEV,
       control_handle: ControlHandle,
-      app_events: ViewModelEventHandle,
+      app_events: ViewModelEventHandle<ViewModel>,
   ) -> Self {
     Self {
       lcd_device: lcd_panel,
       control_handle,
-      model_events: app_events,
+      app_events,
     }
   }
 
@@ -70,7 +71,7 @@ where
 
       window.update(ui.get_display_ref().unwrap());
 
-      while last_tick.elapsed() < TARGET_DRAW_INTERVAL {
+      'event_handler: loop {
         for event in window.events() {
           match event {
             UserInputEvent::Quit => {
@@ -85,9 +86,13 @@ where
         }
 
         thread::sleep(event_update_interval);
+
+        if last_tick.elapsed() >= TARGET_DRAW_INTERVAL {
+          break 'event_handler;
+        }
       }
 
-      if let Some(model) = self.model_events.try_recv_latest().unwrap() {
+      if let Some(model) = self.app_events.try_recv_latest().unwrap() {
         main.bind(model)?;
       }
 

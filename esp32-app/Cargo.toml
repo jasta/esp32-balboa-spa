@@ -26,6 +26,7 @@ thiserror = "1.0.38"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 mock-mainboard-lib = { path = "../mock-mainboard-lib" }
 topside-panel-lib = { path = "../topside-panel-lib" }
+wifi-module-lib = { path = "../wifi-module-lib" }
 nb = "1.0.0"
 ws2812-esp32-rmt-driver = "0.5.0"
 smart-leds = "0.3.0"

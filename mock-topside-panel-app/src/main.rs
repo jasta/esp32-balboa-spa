@@ -54,14 +54,20 @@ fn main() -> anyhow::Result<()> {
   let topside_app = TopsidePanelApp::new(
       StdTransport::new(client_in, client_out),
       SimulatorDevice,
-      MockWifiManager);
+      Some(MockWifiManager::new()));
 
   let (hottub_handle, hottub_runner) = main_board.into_runner();
   let hottub_thread = thread::Builder::new()
       .name("HotTub Thread".to_owned())
       .spawn(move || hottub_runner.run_loop().unwrap())?;
 
-  topside_app.run_loop();
+  topside_app.run_loop()?;
+
+  info!("Window shut down, requesting graceful shutdown...");
+  thread::spawn(|| {
+    thread::sleep(GRACEFUL_SHUTDOWN_PERIOD);
+    panic!("Graceful shutdown expired timeout...");
+  });
 
   hottub_handle.request_shutdown();
   hottub_thread.join().unwrap();

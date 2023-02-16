@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use log::{debug, error, info, warn};
+use lvgl::Event;
 use measurements::Temperature;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
@@ -19,10 +20,10 @@ use common_lib::transport::Transport;
 use HandlingError::ShutdownRequested;
 use crate::network::app_state::AppState;
 use common_lib::channel_filter::ChannelFilter;
+use common_lib::view_model_event_handle::{ViewEvent, ViewModelEventHandle};
 use crate::network::handling_error::HandlingError;
 use crate::network::handling_error::HandlingError::FatalError;
 use crate::model::view_model::ViewModel;
-use crate::model::view_model_event_handle::{Event, ViewModelEventHandle};
 use crate::model::button::Button;
 
 pub struct TopsidePanelClient<R, W> {
@@ -41,7 +42,7 @@ impl<R: Read, W: Write> TopsidePanelClient<R, W> {
     }
   }
 
-  pub fn into_runner(self) -> (ControlHandle, ViewModelEventHandle, Runner<R, W>) {
+  pub fn into_runner(self) -> (ControlHandle, ViewModelEventHandle<ViewModel>, Runner<R, W>) {
     let (commands_tx, commands_rx) = mpsc::sync_channel(32);
     let (events_tx, events_rx) = mpsc::channel();
     let message_reader = MessageReader {
@@ -50,7 +51,7 @@ impl<R: Read, W: Write> TopsidePanelClient<R, W> {
     };
 
     let init_view_model = ViewModel::default();
-    let _ = events_tx.send(Event::ModelUpdated(init_view_model.clone()));
+    let _ = events_tx.send(ViewEvent::ModelUpdated(init_view_model.clone()));
     let event_handler = EventHandler {
       commands_rx,
       events_tx,
@@ -67,6 +68,7 @@ impl<R: Read, W: Write> TopsidePanelClient<R, W> {
   }
 }
 
+#[derive(Clone)]
 pub struct ControlHandle {
   commands_tx: SyncSender<Command>,
 }
@@ -74,6 +76,11 @@ pub struct ControlHandle {
 impl ControlHandle {
   pub fn send_button_pressed(&self, button: Button) {
     let _ = self.commands_tx.send(Command::ButtonPressed(button));
+  }
+
+  /// Optional API to send in Wi-Fi model updates that can be rendered by the topside panel
+  pub fn send_wifi_model(&self, model: wifi_module_lib::view_model::ViewModel) {
+    let _ = self.commands_tx.send(Command::WifiModelUpdated(model));
   }
 
   pub fn request_shutdown(&self) {
@@ -137,7 +144,7 @@ struct EventHandler<W> {
   framed_writer: FramedWriter<W>,
   message_logger: MessageLogger,
   commands_rx: Receiver<Command>,
-  events_tx: Sender<Event>,
+  events_tx: Sender<ViewEvent<ViewModel>>,
   last_view_model: ViewModel,
   state: AppState,
 }
@@ -151,8 +158,12 @@ impl <W: Write + Send> EventHandler<W> {
         Command::ReceivedMessage(m) => self.handle_message(m),
         Command::ReadError(e) => Err(FatalError(e.to_string())),
         Command::ButtonPressed(b) => {
-            self.handle_button(b);
-            Ok(())
+          self.handle_button(b);
+          Ok(())
+        },
+        Command::WifiModelUpdated(model) => {
+          self.handle_wifi_model(model);
+          Ok(())
         },
         Command::Shutdown => Err(ShutdownRequested),
       };
@@ -187,17 +198,20 @@ impl <W: Write + Send> EventHandler<W> {
           ChannelFilter::RelevantTo(vec![channel]));
     }
     self.state.topside_state_machine.handle_message(&mut self.framed_writer, &self.message_logger, &message.channel, &mt)?;
-
     if self.state.fast_snapshot() != state_snapshot {
-      let model = self.state.generate_view_model();
-      if self.last_view_model != model {
-        info!("Emitting new model: {model:?}");
-        self.last_view_model = model.clone();
-        let _ = self.events_tx.send(Event::ModelUpdated(model));
-      }
+      self.maybe_emit_view_model();
     }
 
     Ok(())
+  }
+
+  fn maybe_emit_view_model(&mut self) {
+    let model = self.state.generate_view_model();
+    if self.last_view_model != model {
+      info!("Emitting new model: {model:?}");
+      self.last_view_model = model.clone();
+      let _ = self.events_tx.send(ViewEvent::ModelUpdated(model));
+    }
   }
 
   fn handle_button(&mut self, button: Button) {
@@ -240,11 +254,17 @@ impl <W: Write + Send> EventHandler<W> {
   fn enqueue_message(&mut self, message: MessageType) {
     self.state.topside_state_machine.context.outbound_messages.push_back(message);
   }
+
+  fn handle_wifi_model(&mut self, model: wifi_module_lib::view_model::ViewModel) {
+    self.state.wifi_model = Some(model);
+    self.maybe_emit_view_model();
+  }
 }
 
 #[derive(Debug)]
 enum Command {
   ReceivedMessage(Message),
+  WifiModelUpdated(wifi_module_lib::view_model::ViewModel),
   ReadError(anyhow::Error),
   ButtonPressed(Button),
   Shutdown,

@@ -9,3 +9,4 @@ pub mod color_util;
 pub mod font;
 pub mod palette;
 pub mod palette_styles;
+mod backlight_manager;

@@ -14,7 +14,7 @@ pub trait BacklightControl {
   fn set_brightness(&mut self, value: BacklightBrightness);
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BacklightBrightness {
   Off,
   FullOn,

@@ -1,22 +1,20 @@
 use std::cmp::{max, min};
-use std::io;
-use std::io::{BufRead, ErrorKind};
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use esp_idf_hal::delay::{BLOCK, NON_BLOCK};
-use esp_idf_hal::gpio::{AnyOutputPin, Gpio3, InputPin, Output, OutputPin, PinDriver, Pull};
+use std::io::{ErrorKind};
+
+use std::sync::{Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use common_lib::transport::Transport;
+
+use esp_idf_hal::delay::{NON_BLOCK};
+use esp_idf_hal::gpio::{AnyOutputPin, InputPin, Output, OutputPin, PinDriver, Pull};
 use esp_idf_hal::peripheral::{Peripheral};
 use esp_idf_hal::prelude::*;
 use esp_idf_hal::uart::{Uart, UartDriver, UartRxDriver, UartTxDriver};
 use esp_idf_hal::{gpio, uart};
 use esp_idf_hal::uart::config::{DataBits, StopBits};
 use esp_idf_sys::{esp, ESP_ERR_TIMEOUT, EspError, uart_mode_t, uart_mode_t_UART_MODE_RS485_APP_CTRL, uart_mode_t_UART_MODE_RS485_COLLISION_DETECT, uart_mode_t_UART_MODE_RS485_HALF_DUPLEX, uart_port_t, uart_set_mode};
-use log::debug;
 use nb::block;
-
-use mock_mainboard_lib::transport::Transport;
 
 pub struct EspUartTransport {
   uart_driver: UartDriver<'static>,

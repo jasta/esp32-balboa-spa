@@ -10,7 +10,7 @@ pub trait WifiManager {
   fn advertisement(&self) -> &Advertisement;
 
   /// Initialize driver and load stored credentials.
-  fn init(&self) -> Result<(), Self::Error>;
+  fn init(&mut self) -> Result<(), Self::Error>;
 
   /// Check if stored credentials are present and valid, then return the SSID for display
   /// purposes.  If connecting to a BSSID, Some("<hidden>") will be used.
@@ -18,7 +18,7 @@ pub trait WifiManager {
 
   /// Generate a QR code that Wi-Fi Easy Connect clients can use to send us credentials.  This
   /// method assumes [Self::get_sta_network_name] was None.
-  fn dpp_generate_qr(&self) -> Result<String, Self::Error>;
+  fn dpp_generate_qr(&mut self) -> Result<String, Self::Error>;
 
   /// Listen for Wi-Fi Easy Connect credentials.  Store them upon success which enables us to move
   /// to [Self::sta_connect] next.  This method blocks until the credentials are available or

@@ -1,30 +1,25 @@
-use std::borrow::Borrow;
-use esp_idf_hal::peripheral::Peripheral;
-use esp_idf_hal::modem::Modem;
-use esp_idf_svc::eventloop::{EspEventLoop, System};
-use esp_idf_svc::wifi::{EspWifi, WifiEvent, WifiWait};
-use embedded_svc::wifi::{AccessPointConfiguration, ClientConfiguration, Configuration, Wifi};
-use esp_idf_svc::netif::{EspNetif, EspNetifWait, IpEvent};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use std::net::Ipv4Addr;
-use std::ops::Deref;
-use std::ptr::null_mut;
-use std::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::sync::mpsc::{channel, sync_channel};
-use anyhow::anyhow;
+
+use embedded_svc::wifi::{Configuration, Wifi};
+use esp_idf_hal::modem::Modem;
+use esp_idf_hal::peripheral::Peripheral;
+use esp_idf_svc::eventloop::{EspEventLoop, System};
 use esp_idf_svc::handle::RawHandle;
+use esp_idf_svc::netif::IpEvent;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_sys::{esp, EspError};
-use log::{debug, error, info, warn};
+use esp_idf_svc::wifi::{EspWifi, WifiEvent, WifiWait};
+use esp_idf_sys::*;
+use log::error;
 use wifi_module_lib::advertisement::Advertisement;
-use wifi_module_lib::wifi_manager::{ConnectionError, StaAssociationError, WifiManager};
+use wifi_module_lib::wifi_manager::{StaAssociationError, WifiManager};
 
 const STARTED_TIMEOUT: Duration = Duration::from_secs(20);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 
-struct EspWifiManager<'a> {
+pub struct EspWifiManager<'a> {
   wifi: EspWifi<'a>,
   event_loop: EspEventLoop<System>,
   advertisement: Advertisement,
@@ -33,7 +28,7 @@ struct EspWifiManager<'a> {
 impl<'a> EspWifiManager<'a> {
   pub fn new(
       modem: impl Peripheral<P = Modem> + 'static,
-      event_loop: &EspEventLoop<System>,
+      event_loop: EspEventLoop<System>,
       nvs: EspDefaultNvsPartition,
       advertised_name: String,
   ) -> Result<Self, EspError> {
@@ -44,13 +39,13 @@ impl<'a> EspWifiManager<'a> {
         mac);
     Ok(Self {
       wifi,
-      event_loop: event_loop.clone(),
+      event_loop,
       advertisement,
     })
   }
 }
 
-impl WifiManager for EspWifiManager {
+impl<'a> WifiManager for EspWifiManager<'a> {
   type Error = EspError;
 
   fn advertisement(&self) -> &Advertisement {
@@ -67,7 +62,7 @@ impl WifiManager for EspWifiManager {
       Ok(())
     } else {
       error!("Wi-Fi driver failed to start after {}s", STARTED_TIMEOUT.as_secs());
-      Err(EspError::from_infallible::<esp_idf_sys::ESP_ERR_INVALID_STATE>())
+      Err(EspError::from_infallible::<ESP_ERR_INVALID_STATE>())
     }
   }
 
@@ -75,7 +70,7 @@ impl WifiManager for EspWifiManager {
     match self.wifi.get_configuration()? {
       Configuration::Client(c) => {
         if !c.ssid.is_empty() {
-          Ok(Some(c.ssid.into()))
+          Ok(Some(c.ssid.as_str().to_owned()))
         } else {
           Ok(c.bssid.map(|_| "<hidden>".to_owned()))
         }
@@ -84,7 +79,7 @@ impl WifiManager for EspWifiManager {
     }
   }
 
-  fn dpp_generate_qr(&self) -> Result<String, Self::Error> {
+  fn dpp_generate_qr(&mut self) -> Result<String, Self::Error> {
     todo!()
   }
 
@@ -102,7 +97,7 @@ impl WifiManager for EspWifiManager {
   }
 
   fn wait_while_connected(&mut self) -> Result<(), Self::Error> {
-    WifiWait::new(&self.event_loop)?.wait(|| !wifi.is_connected().unwrap());
+    WifiWait::new(&self.event_loop)?.wait(|| !self.wifi.is_connected().unwrap());
     Ok(())
   }
 }
@@ -112,14 +107,14 @@ impl<'a> EspWifiManager<'a> {
   /// over error outputs.
   fn do_sta_connect(&mut self) -> Result<Option<StaAssociationError>, EspError> {
     let (tx, rx) = channel();
+    let tx_for_wifi = tx.clone();
+    let tx_for_ip = tx;
     let wifi_sub = self.event_loop.subscribe(move |event: &WifiEvent| {
-      let _ = tx.send(SystemEvent::Wifi(*event));
+      Self::handle_wifi_event(&tx_for_wifi, event);
     })?;
-    let netif_handle = self.wifi.sta_netif().handle();
+    let netif_handle = RawHandleSend(self.wifi.sta_netif().handle());
     let ip_sub = self.event_loop.subscribe(move |event: &IpEvent| {
-      if event.is_for_handle(netif_handle) {
-        let _ = tx.send(SystemEvent::Ip(*event));
-      }
+      Self::handle_ip_event(&tx_for_ip, &netif_handle, event);
     })?;
 
     let start_time = Instant::now();
@@ -164,7 +159,20 @@ impl<'a> EspWifiManager<'a> {
 
     Ok(result)
   }
+
+  fn handle_ip_event(tx: &Sender<SystemEvent>, handle: &RawHandleSend, event: &IpEvent) {
+    if event.is_for_handle(handle.0) {
+      let _ = tx.send(SystemEvent::Ip(*event));
+    }
+  }
+
+  fn handle_wifi_event(tx: &Sender<SystemEvent>, event: &WifiEvent) {
+    let _ = tx.send(SystemEvent::Wifi(*event));
+  }
 }
+
+struct RawHandleSend(*mut esp_netif_t);
+unsafe impl Send for RawHandleSend {}
 
 enum SystemEvent {
   Ip(IpEvent),
@@ -180,7 +188,7 @@ fn wifi_wait_ext(
   let err = Mutex::new(None);
   let matcher_wrapper = || {
     matcher().unwrap_or_else(|e| {
-      let err_store = is_started_err.lock().unwrap();
+      let mut err_store = err.lock().unwrap();
       *err_store = Some(e);
       true
     })

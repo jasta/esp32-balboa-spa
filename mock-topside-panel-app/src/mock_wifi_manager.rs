@@ -21,7 +21,7 @@ impl WifiManager for MockWifiManager {
     &self.advertisement
   }
 
-  fn init(&self) -> Result<(), Self::Error> {
+  fn init(&mut self) -> Result<(), Self::Error> {
     Ok(())
   }
 
@@ -29,7 +29,7 @@ impl WifiManager for MockWifiManager {
     Ok(Some("mynetwork".to_owned()))
   }
 
-  fn dpp_generate_qr(&self) -> Result<String, Self::Error> {
+  fn dpp_generate_qr(&mut self) -> Result<String, Self::Error> {
     Err(anyhow!("Not implemented"))
   }
 

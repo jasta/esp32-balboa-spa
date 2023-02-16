@@ -174,7 +174,7 @@ impl MockSpa {
     Settings0x04ResponseMessage {
       min_max_temps: TemperatureMinMax {
         low_range: (temps[0], temps[1]),
-        high_range: (temps[1], temps[2]),
+        high_range: (temps[2], temps[3]),
       },
     }
   }

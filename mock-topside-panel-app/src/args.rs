@@ -18,6 +18,7 @@ pub struct Args {
 
 #[derive(Debug, Clone)]
 pub enum ConnectMode {
+  None,
   MockSpa,
   ScanAndConnect,
   ConnectTo(SocketAddr),
@@ -44,6 +45,7 @@ pub enum WifiMode {
 impl Display for ConnectMode {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     match self {
+      ConnectMode::None => write!(f, "none"),
       ConnectMode::MockSpa => write!(f, "mock"),
       ConnectMode::ScanAndConnect => write!(f, "-"),
       ConnectMode::ConnectTo(a) => write!(f, "{a}"),
@@ -53,6 +55,7 @@ impl Display for ConnectMode {
 
 fn connect_mode_parser(s: &str) -> Result<ConnectMode, String> {
   match s {
+    "none" => Ok(ConnectMode::None),
     "mock" => Ok(ConnectMode::MockSpa),
     "-" => Ok(ConnectMode::ScanAndConnect),
     _ => {

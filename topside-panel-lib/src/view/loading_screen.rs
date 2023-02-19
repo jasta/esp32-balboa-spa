@@ -41,7 +41,7 @@ impl LoadingScreen {
     style_set_text_font(&mut style, State::DEFAULT, Font::MONTSERRAT_12);
     let mut label = Label::new(&mut screen)?;
     label.add_style(Part::Main, style.clone())?;
-    label.set_align(&mut screen, Align::InBottomLeft, 10, 10)?;
+    label.set_align(&mut screen, Align::InBottomLeft, 10, -10)?;
     obj_set_auto_realign(&mut label, true)?;
 
     label.set_text(CString::new("Loading...").unwrap().as_c_str())?;

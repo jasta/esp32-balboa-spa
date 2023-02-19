@@ -1,29 +1,26 @@
 use std::thread;
 use std::time::Duration;
+use std::io::Write;
 use log::info;
 use common_lib::transport::StdTransport;
-use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
-use mock_mainboard_lib::main_board::MainBoard;
-use std::io::Write;
 use clap::Parser;
 use mock_wifi_manager::MockWifiManager;
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
-use crate::args::{Args, ConnectMode, WifiMode};
+use crate::args::{Args, WifiMode};
+use crate::peer_runner::PeerManager;
 use crate::simulator_window::SimulatorDevice;
 
 mod simulator_window;
 mod args;
 mod mock_wifi_manager;
+mod peer_runner;
+mod peer_mock_spa;
+mod peer_deadend;
 
 const GRACEFUL_SHUTDOWN_PERIOD: Duration = Duration::from_secs(3);
 
 fn main() -> anyhow::Result<()> {
   let args = Args::parse();
-
-  match args.connect_to {
-    ConnectMode::MockSpa => {},
-    _ => todo!(),
-  }
 
   env_logger::builder()
       .format(|buf, record| {
@@ -42,9 +39,9 @@ fn main() -> anyhow::Result<()> {
       .init();
 
   let ((client_in, server_out), (server_in, client_out)) = (pipe::pipe(), pipe::pipe());
-  let main_board = MainBoard::new(StdTransport::new(server_in, server_out))
-      .set_clear_to_send_policy(CtsEnforcementPolicy::Always, Duration::MAX)
-      .set_init_delay(Duration::from_secs(5));
+  let peer_manager = PeerManager::create(
+      args.connect_to,
+      StdTransport::new(server_in, server_out));
 
   let mock_wifi = MockWifiManager::new();
   let wifi_mode_control = mock_wifi.new_control_handle();
@@ -61,10 +58,11 @@ fn main() -> anyhow::Result<()> {
       SimulatorDevice,
       Some(mock_wifi));
 
-  let (hottub_handle, hottub_runner) = main_board.into_runner();
-  let hottub_thread = thread::Builder::new()
+  let mut peer_handle = peer_manager.control_handle;
+  let peer_runner = peer_manager.runner;
+  let peer_thread = thread::Builder::new()
       .name("HotTub Thread".to_owned())
-      .spawn(move || hottub_runner.run_loop().unwrap())?;
+      .spawn(move || peer_runner.run_loop().unwrap())?;
 
   topside_app.run_loop()?;
 
@@ -74,8 +72,8 @@ fn main() -> anyhow::Result<()> {
     panic!("Graceful shutdown expired timeout...");
   });
 
-  hottub_handle.request_shutdown();
-  hottub_thread.join().unwrap();
+  peer_handle.request_shutdown();
+  peer_thread.join().unwrap();
 
   Ok(())
 }

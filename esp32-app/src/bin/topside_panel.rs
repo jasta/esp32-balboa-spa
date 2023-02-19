@@ -94,8 +94,7 @@ fn main() -> anyhow::Result<()> {
       Some(esp_wifi));
 
   info!("Starting app...");
-  let result = topside_app.run_loop();
-  if let Err(e) = result {
+  if let Err(e) = topside_app.run_loop() {
     error!("Fatal error running topside panel: {e}");
   }
 

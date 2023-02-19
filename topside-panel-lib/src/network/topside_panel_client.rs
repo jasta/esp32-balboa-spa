@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SendError, SyncSender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -61,7 +61,11 @@ impl<R: Read, W: Write> TopsidePanelClient<R, W> {
       state: AppState::default(),
     };
 
-    let control_handle = ControlHandle { commands_tx };
+    let control_handle = ControlHandle {
+      inner: Arc::new(ControlInner {
+        commands_tx
+      })
+    };
     let event_handle = ViewModelEventHandle { events_rx };
     let runner = Runner { message_reader, event_handler };
     (control_handle, event_handle, runner)
@@ -70,25 +74,35 @@ impl<R: Read, W: Write> TopsidePanelClient<R, W> {
 
 #[derive(Clone)]
 pub struct ControlHandle {
+  inner: Arc<ControlInner>,
+}
+
+struct ControlInner {
   commands_tx: SyncSender<Command>,
 }
 
 impl ControlHandle {
   pub fn send_button_pressed(&self, button: Button) {
-    let _ = self.commands_tx.send(Command::ButtonPressed(button));
+    let _ = self.inner.commands_tx.send(Command::ButtonPressed(button));
   }
 
   /// Optional API to send in Wi-Fi model updates that can be rendered by the topside panel
   pub fn send_wifi_model(&self, model: wifi_module_lib::view_model::ViewModel) {
-    let _ = self.commands_tx.send(Command::WifiModelUpdated(model));
+    let _ = self.inner.commands_tx.send(Command::WifiModelUpdated(model));
   }
 
+  pub fn request_shutdown(&self) {
+    self.inner.request_shutdown();
+  }
+}
+
+impl ControlInner {
   pub fn request_shutdown(&self) {
     let _ = self.commands_tx.send(Command::Shutdown);
   }
 }
 
-impl Drop for ControlHandle {
+impl Drop for ControlInner {
   fn drop(&mut self) {
     self.request_shutdown();
   }

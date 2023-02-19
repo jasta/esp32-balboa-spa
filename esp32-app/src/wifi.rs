@@ -1,8 +1,9 @@
+use std::marker::PhantomData;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use embedded_svc::wifi::{Configuration, Wifi};
+use embedded_svc::wifi::{ClientConfiguration, Configuration, Wifi};
 use esp_idf_hal::modem::Modem;
 use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_svc::eventloop::{EspEventLoop, System};
@@ -10,22 +11,23 @@ use esp_idf_svc::handle::RawHandle;
 use esp_idf_svc::netif::IpEvent;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::wifi::{EspWifi, WifiEvent, WifiWait};
+use esp_idf_svc::wifi_dpp::{EspDppBootstrapped, EspDppBootstrapper, QrCode};
 use esp_idf_sys::*;
 use log::error;
 use wifi_module_lib::advertisement::Advertisement;
-use wifi_module_lib::wifi_manager::{StaAssociationError, WifiManager};
+use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
 
 const STARTED_TIMEOUT: Duration = Duration::from_secs(20);
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 
-pub struct EspWifiManager<'a> {
-  wifi: EspWifi<'a>,
+pub struct EspWifiManager<'w> {
+  wifi: EspWifi<'w>,
   event_loop: EspEventLoop<System>,
   advertisement: Advertisement,
 }
 
-impl<'a> EspWifiManager<'a> {
+impl<'w> EspWifiManager<'w> {
   pub fn new(
       modem: impl Peripheral<P = Modem> + 'static,
       event_loop: EspEventLoop<System>,
@@ -45,8 +47,11 @@ impl<'a> EspWifiManager<'a> {
   }
 }
 
-impl<'a> WifiManager for EspWifiManager<'a> {
+impl<'w> WifiManager<'w> for EspWifiManager<'w> {
   type Error = EspError;
+
+  type DppBootstrapper<'d> = EspDppBootstrapperAdapter<'d, 'w>
+  where 'w: 'd, Self: 'd;
 
   fn advertisement(&self) -> &Advertisement {
     &self.advertisement
@@ -68,23 +73,16 @@ impl<'a> WifiManager for EspWifiManager<'a> {
 
   fn get_sta_network_name(&self) -> Result<Option<String>, Self::Error> {
     match self.wifi.get_configuration()? {
-      Configuration::Client(c) => {
-        if !c.ssid.is_empty() {
-          Ok(Some(c.ssid.as_str().to_owned()))
-        } else {
-          Ok(c.bssid.map(|_| "<hidden>".to_owned()))
-        }
-      }
+      Configuration::Client(c) => Ok(get_network_name(&c)),
       _ => Ok(None),
     }
   }
 
-  fn dpp_generate_qr(&mut self) -> Result<String, Self::Error> {
-    todo!()
-  }
-
-  fn dpp_listen_then_wait(&mut self) -> Result<String, Self::Error> {
-    todo!()
+  fn create_bootstrapper(&mut self) -> Result<Self::DppBootstrapper<'_>, Self::Error> {
+    let bootstrapper = EspDppBootstrapper::new(&mut self.wifi)?;
+    Ok(EspDppBootstrapperAdapter {
+      bootstrapper
+    })
   }
 
   fn sta_connect(&mut self) -> Result<(), StaAssociationError> {
@@ -102,7 +100,20 @@ impl<'a> WifiManager for EspWifiManager<'a> {
   }
 }
 
-impl<'a> EspWifiManager<'a> {
+// impl<'w> WifiManagerDppExt<'w> for EspWifiManager<'w> {
+//   fn bootstrap_dpp(&mut self) -> Result<Self::DppListener<'_>, Self::Error> {
+//     let mut bootstrapper = EspDppBootstrapper::new(&mut self.wifi)?;
+//     let channels: Vec<_> = (1..=11).collect();
+//     let bootstrapped = bootstrapper.gen_qrcode(&channels, None, None)?;
+//     Ok(EspWifiDppListener {
+//       // bootstrapper,
+//       bootstrapped,
+//       _phantom: PhantomData,
+//     })
+//   }
+// }
+
+impl<'w> EspWifiManager<'w> {
   /// Perform STA connect using our own internal state machine for more precise control
   /// over error outputs.
   fn do_sta_connect(&mut self) -> Result<Option<StaAssociationError>, EspError> {
@@ -168,6 +179,53 @@ impl<'a> EspWifiManager<'a> {
 
   fn handle_wifi_event(tx: &Sender<SystemEvent>, event: &WifiEvent) {
     let _ = tx.send(SystemEvent::Wifi(*event));
+  }
+}
+
+pub struct EspDppBootstrapperAdapter<'d, 'w> {
+  bootstrapper: EspDppBootstrapper<'d, 'w>,
+}
+
+impl<'d, 'w> WifiDppBootstrapper<'d, 'w> for EspDppBootstrapperAdapter<'d, 'w> {
+  type Error = EspError;
+
+  type DppBootstrapped<'b> = EspDppBootstrappedAdapter<'b>
+  where Self: 'b;
+
+  fn bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
+    let channels: Vec<_> = (1..=11).collect();
+    let bootstrapped =
+        self.bootstrapper.gen_qrcode(&channels, None, None)?;
+    Ok(EspDppBootstrappedAdapter {
+      bootstrapped,
+    })
+  }
+}
+
+pub struct EspDppBootstrappedAdapter<'b> {
+  bootstrapped: EspDppBootstrapped<'b, QrCode>,
+}
+
+impl<'b> WifiDppBootstrapped<'b> for EspDppBootstrappedAdapter<'b> {
+  type Error = EspError;
+
+  fn get_qr_code(&self) -> &str {
+    &self.bootstrapped.data.0
+  }
+
+  fn listen_then_wait(self) -> Result<String, Self::Error> {
+    let config = self.bootstrapped.listen_forever()?;
+    drop(self.bootstrapped);
+    Ok(get_network_name(&config)
+        .expect("Must have a valid target network!"))
+  }
+}
+
+fn get_network_name(config: &ClientConfiguration) -> Option<String> {
+  if !config.ssid.is_empty() {
+    Some(config.ssid.as_str().to_owned())
+  } else {
+    config.bssid.map(|_| "<hidden>".to_owned())
   }
 }
 

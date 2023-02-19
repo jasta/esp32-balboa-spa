@@ -29,7 +29,7 @@ where
     LCD: LcdDevice + Send + 'static,
     LCD::Display: DrawTarget,
     <<LCD as LcdDevice>::Display as DrawTarget>::Color: PixelColor + From<Color>,
-    WIFI: WifiManager + Send + 'static,
+    WIFI: WifiManager<'static> + Send + 'static,
 {
   pub fn new(
       transport: T,

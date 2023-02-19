@@ -53,6 +53,7 @@ fn main() -> anyhow::Result<()> {
     WifiMode::ProvisionForever => wifi_mode_control.drive_dpp_forever(),
     WifiMode::Normal => wifi_mode_control.drive_subsequent_run(),
     WifiMode::Fail => wifi_mode_control.drive_cant_connect(),
+    WifiMode::DriverFail => wifi_mode_control.drive_init_failed(),
   }
 
   let topside_app = TopsidePanelApp::new(

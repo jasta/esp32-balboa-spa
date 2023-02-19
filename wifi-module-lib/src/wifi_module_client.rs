@@ -12,7 +12,6 @@ use common_lib::channel_filter::ChannelFilter;
 use common_lib::message_logger::{MessageDirection, MessageLogger};
 use common_lib::transport::Transport;
 use common_lib::view_model_event_handle::ViewModelEventHandle;
-use crate::advertisement::Advertisement;
 use crate::app_state::AppState;
 use crate::broadcaster::{broadcast_channel, BroadcastSender};
 use crate::command::Command;
@@ -32,7 +31,7 @@ pub struct WifiModuleClient<R, W, WIFI> {
   wifi_manager: WIFI,
 }
 
-impl <R: Read, W: Write, WIFI: WifiManager> WifiModuleClient<R, W, WIFI> {
+impl <R: Read, W: Write, WIFI: WifiManager<'static>> WifiModuleClient<R, W, WIFI> {
   pub fn new(transport: impl Transport<R, W>, wifi_manager: WIFI) -> Self {
     let (raw_reader, raw_writer) = transport.split();
     let framed_reader = FramedReader::new(raw_reader);
@@ -95,9 +94,9 @@ impl <R, W, WIFI> Runner<R, W, WIFI>
 where
     R: Read + Send + 'static,
     W: Write + Send + 'static,
-    WIFI: WifiManager + Send + 'static
+    WIFI: WifiManager<'static> + Send + 'static
 {
-  pub fn run_loop(mut self) -> anyhow::Result<()> {
+  pub fn run_loop(self) -> anyhow::Result<()> {
     let reader_thread = thread::Builder::new()
         .name("MessageReader".into())
         .spawn(move || {
@@ -124,7 +123,11 @@ where
     let wifi_thread = thread::Builder::new()
         .name("WifiThread".into())
         .spawn(move || {
-          self.wifi_handler.run_loop().unwrap()
+          // Don't actually panic here as we informed the model of this state
+          // and have to trust the user to resolve the issue from here on.
+          if let Err(e) = self.wifi_handler.run_loop() {
+            error!("Wi-Fi module encountered fatal error: {e}!");
+          }
         })
         .unwrap();
 

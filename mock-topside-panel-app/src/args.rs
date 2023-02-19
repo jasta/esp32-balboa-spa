@@ -36,6 +36,9 @@ pub enum WifiMode {
 
   /// Simulate failing to connect forever in a loop
   Fail,
+
+  /// Simulate a fatal driver error
+  DriverFail,
 }
 
 impl Display for ConnectMode {

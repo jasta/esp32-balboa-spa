@@ -11,13 +11,14 @@ opt-level = "s"
 debug = true # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
 
-[features]
-pio = ["esp-idf-sys/pio"]
+[patch.crates-io]
+esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
+esp-idf-svc = { git = "https://github.com/jasta/esp-idf-svc", branch = "esp_dpp" }
 
 [dependencies]
-esp-idf-sys = { version = "0.32.0", features = ["binstart"] }
+esp-idf-sys = { version = "0.32.1", features = ["binstart"] }
 esp-idf-svc = "0.45.0"
-esp-idf-hal = "0.40.0"
+esp-idf-hal = "0.40.1"
 embedded-svc = "0.24.0"
 embedded-hal = "0.2.7"
 log = "0.4.17"

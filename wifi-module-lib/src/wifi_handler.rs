@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::mpsc::{Sender, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -7,7 +8,7 @@ use log::{error, info, warn};
 use common_lib::view_model_event_handle::ViewEvent;
 use crate::command::Command;
 use crate::view_model::{ConnectionState, Mode, NominalModel, ProvisioningParams, TroubleAssociatingModel, UnprovisionedModel, ViewModel};
-use crate::wifi_manager::{StaAssociationError, WifiManager};
+use crate::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
 
 /// Amount of time to allow for a successful connection before signaling to the UI that
 /// something might be wrong.
@@ -18,6 +19,10 @@ const RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
 pub struct WifiHandler<W> {
   wifi_manager: W,
+  model_manager: ModelManager,
+}
+
+struct ModelManager {
   view_events_tx: Sender<ViewEvent<ViewModel>>,
   state: AppState,
   last_model: Option<ViewModel>,
@@ -41,16 +46,18 @@ enum UnrecoverableError {
 #[derive(Debug, Default)]
 struct QrCode(String);
 
-impl<W: WifiManager> WifiHandler<W> {
+impl<'a, W: WifiManager<'a>> WifiHandler<W> {
   pub fn new(
       wifi_manager: W,
       view_events_tx: Sender<ViewEvent<ViewModel>>
   ) -> Self {
     Self {
       wifi_manager,
-      view_events_tx,
-      state: AppState::default(),
-      last_model: None,
+      model_manager: ModelManager {
+        view_events_tx,
+        state: Default::default(),
+        last_model: None,
+      }
     }
   }
 
@@ -58,7 +65,7 @@ impl<W: WifiManager> WifiHandler<W> {
     self.maybe_emit_view_model();
     if let Err((reported_e, actual_e)) = self.do_run_loop() {
       error!("Critical error {reported_e:?}: {actual_e}");
-      self.state.unrecoverable_error = Some(reported_e);
+      self.state_mut().unrecoverable_error = Some(reported_e);
       self.maybe_emit_view_model();
       Err(anyhow!("{actual_e:?}"))
     } else {
@@ -67,12 +74,13 @@ impl<W: WifiManager> WifiHandler<W> {
   }
 
   fn do_run_loop(&mut self) -> Result<(), (UnrecoverableError, W::Error)> {
-    let target = self.wait_for_config()?;
+    info!("Loading Wi-Fi credentials...");
+    let target = self.maybe_wait_for_config()?;
     self.maybe_emit_view_model();
 
     loop {
       info!("Connecting to {target}...");
-      self.state.connection_state = ConnectionState::Associating;
+      self.state_mut().connection_state = ConnectionState::Associating;
       self.maybe_emit_view_model();
       let initial_connection_time = Instant::now();
       while let Err(e) = self.wifi_manager.sta_connect() {
@@ -83,14 +91,14 @@ impl<W: WifiManager> WifiHandler<W> {
           warn!(
               "Time since last connection exceeded grace period: {}s!",
               time_since_first_try.as_secs());
-          self.state.connection_stalled = Some(e);
+          self.state_mut().connection_stalled = Some(e);
           self.maybe_emit_view_model();
         }
       }
 
       info!("Connected to {target}");
-      self.state.connection_stalled = None;
-      self.state.connection_state = ConnectionState::Connected;
+      self.state_mut().connection_stalled = None;
+      self.state_mut().connection_state = ConnectionState::Connected;
       self.maybe_emit_view_model();
       self.wifi_manager.wait_while_connected().map_err(map_wifi_err::<W>)?;
       info!("Lost connection to {target}!");
@@ -102,33 +110,53 @@ impl<W: WifiManager> WifiHandler<W> {
   fn wait_for_reconnect(&mut self) {
     if !RECONNECT_DELAY.is_zero() {
       info!("Waiting for {}s to reconnect...", RECONNECT_DELAY.as_secs());
-      self.state.connection_state = ConnectionState::NotAssociated;
+      self.state_mut().connection_state = ConnectionState::NotAssociated;
       self.maybe_emit_view_model();
       thread::sleep(RECONNECT_DELAY);
     }
   }
 
-  fn wait_for_config(&mut self) -> Result<String, (UnrecoverableError, W::Error)> {
+  fn maybe_wait_for_config(&mut self) -> Result<String, (UnrecoverableError, W::Error)> {
     self.wifi_manager.init().map_err(map_wifi_err::<W>)?;
 
     let network_name = match self.wifi_manager.get_sta_network_name().map_err(map_wifi_err::<W>)? {
       None => {
-        let qr_code = self.wifi_manager.dpp_generate_qr().map_err(map_dpp_err::<W>)?;
-        self.state.waiting_for_dpp = Some(QrCode(qr_code));
-        self.maybe_emit_view_model();
+        info!("No credentials stored, preparing to use Wi-Fi Easy Connect...");
+        let mut dpp_bootstrapper =
+            self.wifi_manager.create_bootstrapper().map_err(map_dpp_err::<W>)?;
 
-        let name = self.wifi_manager.dpp_listen_then_wait().map_err(map_dpp_err::<W>)?;
-        self.state.waiting_for_dpp = None;
+        info!("Generating QR code...");
+        let dpp_bootstrapped =
+            dpp_bootstrapper.bootstrap().map_err(map_dpp_err::<W>)?;
+        let qr_code = dpp_bootstrapped.get_qr_code().to_owned();
+
+        let model_manager = &mut self.model_manager;
+        model_manager.state.waiting_for_dpp = Some(QrCode(qr_code));
+        model_manager.maybe_emit_view_model();
+
+        info!("Got QR code, waiting for user to provision...");
+        let name = dpp_bootstrapped.listen_then_wait().map_err(map_dpp_err::<W>)?;
+        model_manager.state.waiting_for_dpp = None;
         name
       }
       Some(name) => name,
     };
 
-    self.state.target_ssid = Some(network_name.clone());
+    self.state_mut().target_ssid = Some(network_name.clone());
     Ok(network_name)
   }
 
+  fn state_mut(&mut self) -> &mut AppState {
+    &mut self.model_manager.state
+  }
+
   fn maybe_emit_view_model(&mut self) {
+    self.model_manager.maybe_emit_view_model();
+  }
+}
+
+impl ModelManager {
+  pub fn maybe_emit_view_model(&mut self) {
     let model = self.state.generate_model();
     if self.last_model.as_ref() != Some(&model) {
       info!("Emitting new model: {model:?}");
@@ -167,10 +195,10 @@ impl AppState {
   }
 }
 
-fn map_wifi_err<W: WifiManager>(e: W::Error) -> (UnrecoverableError, W::Error) {
+fn map_wifi_err<'a, W: WifiManager<'a>>(e: W::Error) -> (UnrecoverableError, W::Error) {
   (UnrecoverableError::WifiDriverFailed, e)
 }
 
-fn map_dpp_err<W: WifiManager>(e: W::Error) -> (UnrecoverableError, W::Error) {
+fn map_dpp_err<'a, W: WifiManager<'a>>(e: W::Error) -> (UnrecoverableError, W::Error) {
   (UnrecoverableError::DppBootstrap(e.to_string()), e)
 }

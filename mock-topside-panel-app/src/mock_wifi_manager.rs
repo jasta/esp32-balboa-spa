@@ -1,11 +1,12 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{mem, thread};
+use std::marker::PhantomData;
 use std::time::Duration;
-use anyhow::anyhow;
 use enum_kinds::EnumKind;
+use log::info;
 use MockWifiCommand::{AnswerInit, AnswerStaConnect};
 use wifi_module_lib::advertisement::Advertisement;
-use wifi_module_lib::wifi_manager::{StaAssociationError, WifiManager};
+use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
 use crate::mock_wifi_manager::MockWifiCommand::{AnswerDppListenThenWait, AnswerStaNetworkName, AnswerWaitWhileConnected, AnswerDppGenerateQr, Sleep};
 
 const DEFAULT_CONNECT_DELAY: Duration = Duration::from_secs(2);
@@ -52,8 +53,11 @@ impl MockWifiManager {
   }
 }
 
-impl WifiManager for MockWifiManager {
+impl WifiManager<'static> for MockWifiManager {
   type Error = String;
+
+  type DppBootstrapper<'d> = MockDppBootstrapper<'d>
+  where Self: 'd;
 
   fn advertisement(&self) -> &Advertisement {
     &self.advertisement
@@ -73,18 +77,11 @@ impl WifiManager for MockWifiManager {
     }
   }
 
-  fn dpp_generate_qr(&mut self) -> Result<String, Self::Error> {
-    match self.expect_command(MockWifiCommandKind::AnswerDppGenerateQr)? {
-      AnswerDppGenerateQr(r) => r,
-      _ => panic!(),
-    }
-  }
-
-  fn dpp_listen_then_wait(&mut self) -> Result<String, Self::Error> {
-    match self.expect_command(MockWifiCommandKind::AnswerDppListenThenWait)? {
-      AnswerDppListenThenWait(r) => r,
-      _ => panic!(),
-    }
+  fn create_bootstrapper(&mut self) -> Result<Self::DppBootstrapper<'_>, Self::Error> {
+    Ok(MockDppBootstrapper {
+      wifi_manager: self,
+      _phantom: PhantomData,
+    })
   }
 
   fn sta_connect(&mut self) -> Result<(), StaAssociationError> {
@@ -98,6 +95,50 @@ impl WifiManager for MockWifiManager {
   fn wait_while_connected(&mut self) -> Result<(), Self::Error> {
     match self.expect_command(MockWifiCommandKind::AnswerWaitWhileConnected)? {
       AnswerWaitWhileConnected(r) => r,
+      _ => panic!(),
+    }
+  }
+}
+
+pub struct MockDppBootstrapper<'d> {
+  wifi_manager: &'d mut MockWifiManager,
+  _phantom: PhantomData<&'d ()>,
+}
+
+impl<'d> WifiDppBootstrapper<'d, 'static> for MockDppBootstrapper<'d> {
+  type Error = String;
+
+  type DppBootstrapped<'b> = MockDppBootstrapped<'b>
+  where Self: 'b;
+
+  fn bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
+    let qr_code = match self.wifi_manager.expect_command(MockWifiCommandKind::AnswerDppGenerateQr)? {
+      AnswerDppGenerateQr(r) => r?,
+      _ => panic!(),
+    };
+
+    Ok(MockDppBootstrapped {
+      qr_code,
+      wifi_manager: &mut self.wifi_manager,
+    })
+  }
+}
+
+pub struct MockDppBootstrapped<'b> {
+  qr_code: String,
+  wifi_manager: &'b mut MockWifiManager,
+}
+
+impl<'b> WifiDppBootstrapped<'b> for MockDppBootstrapped<'b> {
+  type Error = String;
+
+  fn get_qr_code(&self) -> &str {
+    &self.qr_code
+  }
+
+  fn listen_then_wait(self) -> Result<String, Self::Error> {
+    match self.wifi_manager.expect_command(MockWifiCommandKind::AnswerDppListenThenWait)? {
+      AnswerDppListenThenWait(r) => r,
       _ => panic!(),
     }
   }
@@ -159,6 +200,12 @@ impl ControlHandle {
       Sleep(Duration::from_secs(60)),
       AnswerStaConnect(Err(StaAssociationError::AssociationTimedOut)),
       // Hang forever trying to connect... not correct, but should do the trick :)
+    ].as_slice());
+  }
+
+  pub fn drive_init_failed(self) {
+    self.send_cmds([
+      AnswerInit(Err("kaboom".to_owned())),
     ].as_slice());
   }
 

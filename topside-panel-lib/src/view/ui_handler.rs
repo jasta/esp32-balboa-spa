@@ -61,10 +61,12 @@ where
 
     let mut screen_flipper = ScreenFlipper::new();
 
-    let event_update_interval = window.event_update_interval();
-    assert!(event_update_interval <= TARGET_DRAW_INTERVAL);
+    let event_update_interval_ms = {
+      let update_interval = window.event_update_interval();
+      assert!(update_interval <= TARGET_DRAW_INTERVAL);
 
-    let event_update_interval_ms = u32::try_from(event_update_interval.as_millis()).unwrap();
+      u32::try_from(update_interval.as_millis()).unwrap()
+    };
 
     info!("Starting UI event loop...");
     let mut last_tick = Instant::now();

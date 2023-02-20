@@ -54,9 +54,9 @@ fn main() -> anyhow::Result<()> {
       peripherals.spi2,
       peripherals.pins.gpio6,
       peripherals.pins.gpio7,
-      Option::<Gpio0>::None,
+      None::<Gpio0>,
       Dma::Disabled,
-      Option::<Gpio0>::None,
+      None::<Gpio0>,
       &spi::config::Config::new()
           .baudrate(40.MHz().into())
           .data_mode(V02Type(MODE_0).into())
@@ -68,7 +68,7 @@ fn main() -> anyhow::Result<()> {
   let display = Builder::ili9341_rgb565(display_interface)
       .with_orientation(Orientation::Landscape(false))
       .with_color_order(ColorOrder::Bgr)
-      .init(&mut Ets, Option::<PinDriver<AnyOutputPin, Output>>::None)
+      .init(&mut Ets, None::<PinDriver<AnyOutputPin, Output>>)
       .unwrap();
 
   info!("Setting up app...");

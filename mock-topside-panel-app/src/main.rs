@@ -8,7 +8,7 @@ use mock_wifi_manager::MockWifiManager;
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
 use crate::args::{Args, WifiMode};
 use crate::peer_runner::PeerManager;
-use crate::simulator_window::SimulatorDevice;
+use crate::simulator_window::{SimulatorDevice, SleepDelay};
 
 mod simulator_window;
 mod args;
@@ -56,7 +56,8 @@ fn main() -> anyhow::Result<()> {
   let topside_app = TopsidePanelApp::new(
       StdTransport::new(client_in, client_out),
       SimulatorDevice,
-      Some(mock_wifi));
+      Some(mock_wifi),
+      SleepDelay);
 
   let mut peer_handle = peer_manager.control_handle;
   let peer_runner = peer_manager.runner;

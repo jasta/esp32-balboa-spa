@@ -12,16 +12,17 @@ use wifi_module_lib::wifi_manager::WifiManager;
 use wifi_module_lib::wifi_module_client::WifiModuleClient;
 use crate::network::topside_panel_client::TopsidePanelClient;
 use crate::view::lcd_device::LcdDevice;
-use crate::view::ui_handler::UiHandler;
+use crate::view::ui_handler::{UiDelayMs, UiHandler};
 
-pub struct TopsidePanelApp<R, W, T, LCD, WIFI> {
+pub struct TopsidePanelApp<R, W, T, LCD, WIFI, DELAY> {
   transport: T,
   _phantom_rw: PhantomData<(R, W)>,
   lcd_device: LCD,
   wifi_manager: Option<WIFI>,
+  delay: DELAY,
 }
 
-impl<R, W, T, LCD, WIFI> TopsidePanelApp<R, W, T, LCD, WIFI>
+impl<R, W, T, LCD, WIFI, DELAY> TopsidePanelApp<R, W, T, LCD, WIFI, DELAY>
 where
     R: Read + Send + 'static,
     W: Write + Send + 'static,
@@ -30,17 +31,20 @@ where
     LCD::Display: DrawTarget,
     <<LCD as LcdDevice>::Display as DrawTarget>::Color: PixelColor + From<Color>,
     WIFI: WifiManager<'static> + Send + 'static,
+    DELAY: UiDelayMs + Send + 'static,
 {
   pub fn new(
       transport: T,
       lcd_device: LCD,
-      wifi_manager: Option<WIFI>
+      wifi_manager: Option<WIFI>,
+      delay: DELAY,
   ) -> Self {
     Self {
       transport,
       _phantom_rw: PhantomData,
       lcd_device,
       wifi_manager,
+      delay,
     }
   }
 
@@ -69,6 +73,7 @@ where
       bus_switch.start();
     }
 
+    info!("Starting topside runner...");
     let (topside_control, topside_events, topside_runner) =
         topside_client.into_runner();
     let topside_thread = thread::Builder::new()
@@ -76,33 +81,36 @@ where
         .spawn(move || topside_runner.run_loop().unwrap())?;
 
     if let Some(wifi_client) = wifi_client {
+      info!("Starting wifi runner...");
       let (wifi_events, wifi_runner) = wifi_client.into_runner()?;
       let wifi_thread = thread::Builder::new()
           .name("WifiRunner".to_owned())
           .spawn(move || wifi_runner.run_loop().unwrap())?;
 
+      info!("Starting event relay...");
       let control_for_relay = topside_control.clone();
       let event_relay = thread::Builder::new()
           .name("EventRelay".to_owned())
           .spawn(move || {
-            while let Ok(wifi_event) = wifi_events.try_recv_latest() {
-              if let Some(wifi_event) = wifi_event {
-                control_for_relay.send_wifi_model(wifi_event);
-              }
+            while let Ok(wifi_event) = wifi_events.recv_latest() {
+              control_for_relay.send_wifi_model(wifi_event);
             }
           })?;
     }
 
+    info!("Starting UI handler...");
     let ui_thread = thread::Builder::new()
-        .name("UI Thread".to_owned())
+        .name("UiThread".to_owned())
         .spawn(move || {
+          info!("In UI thread...");
           let handler = UiHandler::new(
               self.lcd_device,
               topside_control,
               topside_events);
-          handler.run_loop().unwrap()
+          handler.run_loop(self.delay).unwrap()
         })?;
 
+    info!("Waiting on UI thread...");
     ui_thread.join().unwrap();
 
     Ok(())

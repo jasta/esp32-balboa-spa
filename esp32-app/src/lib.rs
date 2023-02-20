@@ -4,3 +4,6 @@ pub mod esp_ws2812_driver;
 pub mod status_led;
 pub mod esp32c3_devkit_m;
 pub mod display_factory;
+pub mod membrane_switch;
+pub mod backlight_control;
+pub mod ui_device;

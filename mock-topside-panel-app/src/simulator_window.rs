@@ -1,3 +1,4 @@
+use std::thread;
 use std::time::Duration;
 use embedded_graphics_simulator::{OutputSettingsBuilder, SimulatorDisplay, SimulatorEvent, Window};
 use embedded_graphics::pixelcolor::Rgb565;
@@ -6,10 +7,18 @@ use embedded_graphics_simulator::sdl2::Keycode;
 use log::info;
 use topside_panel_lib::model::button::Button;
 use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl, LcdDevice};
+use topside_panel_lib::view::ui_handler::UiDelayMs;
 use topside_panel_lib::view::user_input_event::UserInputEvent;
 use topside_panel_lib::view::window_proxy::WindowProxy;
 
 const TARGET_WINDOW_UPDATE_INTERVAL: Duration = Duration::from_millis(20);
+
+pub struct SleepDelay;
+impl UiDelayMs for SleepDelay {
+  fn delay_ms(&mut self, ms: u32) {
+    thread::sleep(Duration::from_millis(ms.into()));
+  }
+}
 
 #[derive(Default)]
 pub struct SimulatorDevice;

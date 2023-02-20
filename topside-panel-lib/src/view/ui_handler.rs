@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use std::thread;
 use cstr_core::{CStr, CString};
 use embedded_graphics::pixelcolor::PixelColor;
+use log::info;
 use common_lib::view_model_event_handle::ViewModelEventHandle;
 use crate::view::main_screen::MainScreen;
 use crate::network::topside_panel_client::ControlHandle;
@@ -24,6 +25,11 @@ pub struct UiHandler<DEV> {
   lcd_device: DEV,
   control_handle: ControlHandle,
   app_events: ViewModelEventHandle<ViewModel>,
+}
+
+pub trait UiDelayMs {
+  /// Pauses execution for `ms` milliseconds
+  fn delay_ms(&mut self, ms: u32);
 }
 
 impl<DEV> UiHandler<DEV>
@@ -44,11 +50,12 @@ where
     }
   }
 
-  pub fn run_loop(mut self) -> LvResult<()> {
+  pub fn run_loop<DELAY: UiDelayMs>(mut self, mut delay: DELAY) -> LvResult<()> {
+    info!("Setting up display...");
     let (display, mut window, mut backlight) =
         self.lcd_device.setup();
 
-
+    info!("Initializing lvgl display driver...");
     let mut ui = UI::init()?;
     ui.disp_drv_register(display)?;
 
@@ -57,6 +64,9 @@ where
     let event_update_interval = window.event_update_interval();
     assert!(event_update_interval <= TARGET_DRAW_INTERVAL);
 
+    let event_update_interval_ms = u32::try_from(event_update_interval.as_millis()).unwrap();
+
+    info!("Starting UI event loop...");
     let mut last_tick = Instant::now();
     let mut backlight_manager = BacklightManager::init(backlight);
     loop {
@@ -80,7 +90,7 @@ where
           }
         }
 
-        thread::sleep(event_update_interval);
+        delay.delay_ms(event_update_interval_ms);
 
         if last_tick.elapsed() >= TARGET_DRAW_INTERVAL {
           break 'event_handler;

@@ -19,18 +19,12 @@ use esp_idf_hal::spi::SpiDeviceDriver;
 use esp_idf_hal::units::FromValueType;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_sys::EspError;
-use log::{error, info, warn};
+use log::{error, info};
 use mipidsi::{Builder, ColorOrder, Orientation};
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
-use topside_panel_lib::model::button::Button;
-use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl, LcdDevice};
-use topside_panel_lib::view::ui_handler::UiDelayMs;
-use topside_panel_lib::view::user_input_event::UserInputEvent;
-use topside_panel_lib::view::window_proxy::WindowProxy;
+use topside_panel_lib::model::key_event::Key;
 use wifi_module_lib::advertisement::Advertisement;
 use esp_app::backlight_control::HalBacklightControl;
-
 use esp_app::esp_uart_transport::EspUartTransport;
 use esp_app::membrane_switch;
 use esp_app::membrane_switch::MembraneSwitchWindowProxy;
@@ -81,8 +75,10 @@ fn main() -> anyhow::Result<()> {
   let lcd_device = TftAndMembraneSwitchDevice::new(
       display,
       MembraneSwitchWindowProxy::new(vec![
-        (membrane_switch::debounced(peripherals.pins.gpio2.downgrade())?, Button::Up),
-        (membrane_switch::debounced(peripherals.pins.gpio3.downgrade())?, Button::Down),
+        (membrane_switch::debounced(peripherals.pins.gpio2.downgrade())?, Key::Up),
+        (membrane_switch::debounced(peripherals.pins.gpio3.downgrade())?, Key::Down),
+        (membrane_switch::debounced(peripherals.pins.gpio10.downgrade())?, Key::Jets1),
+        (membrane_switch::debounced(peripherals.pins.gpio8.downgrade())?, Key::Light),
       ]),
       HalBacklightControl::new(PinDriver::output(peripherals.pins.gpio5)?));
 

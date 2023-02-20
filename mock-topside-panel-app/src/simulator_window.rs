@@ -5,7 +5,7 @@ use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::geometry::Size;
 use embedded_graphics_simulator::sdl2::Keycode;
 use log::info;
-use topside_panel_lib::model::button::Button;
+use topside_panel_lib::model::key_event::{Key, KeyEvent};
 use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl, LcdDevice};
 use topside_panel_lib::view::ui_handler::UiDelayMs;
 use topside_panel_lib::view::user_input_event::UserInputEvent;
@@ -51,18 +51,14 @@ impl WindowProxy<SimulatorDisplay<Rgb565>> for SimulatorWindowProxy {
     self.window.events()
         .filter_map(|ref e| {
           match e {
-            SimulatorEvent::KeyUp { keycode, keymod, repeat } => {
-              match keycode {
-                Keycode::Up => Some(UserInputEvent::ButtonPressed(Button::Up)),
-                Keycode::Down => Some(UserInputEvent::ButtonPressed(Button::Down)),
-                Keycode::J => Some(UserInputEvent::ButtonPressed(Button::Jets1)),
-                Keycode::L => Some(UserInputEvent::ButtonPressed(Button::Light)),
-                _ => {
-                  info!("Got: {e:?}");
-                  None
-                }
-              }
+            SimulatorEvent::KeyUp { keycode, .. } => {
+              map_keycode(keycode)
+                  .map(|key| UserInputEvent::KeyEvent(KeyEvent::KeyUp { key }))
             }
+            SimulatorEvent::KeyDown { keycode, .. } => {
+              map_keycode(keycode)
+                  .map(|key| UserInputEvent::KeyEvent(KeyEvent::KeyDown { key }))
+            },
             SimulatorEvent::Quit => Some(UserInputEvent::Quit),
             _ => None,
           }
@@ -72,6 +68,19 @@ impl WindowProxy<SimulatorDisplay<Rgb565>> for SimulatorWindowProxy {
 
   fn update(&mut self, display: &SimulatorDisplay<Rgb565>) {
     self.window.update(display);
+  }
+}
+
+fn map_keycode(keycode: &Keycode) -> Option<Key> {
+  match keycode {
+    Keycode::Up => Some(Key::Up),
+    Keycode::Down => Some(Key::Down),
+    Keycode::J => Some(Key::Jets1),
+    Keycode::L => Some(Key::Light),
+    k => {
+      info!("Got: {k:?}");
+      None
+    },
   }
 }
 

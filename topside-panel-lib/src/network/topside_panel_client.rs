@@ -24,7 +24,7 @@ use common_lib::view_model_event_handle::{ViewEvent, ViewModelEventHandle};
 use crate::network::handling_error::HandlingError;
 use crate::network::handling_error::HandlingError::FatalError;
 use crate::model::view_model::ViewModel;
-use crate::model::button::Button;
+use crate::model::key_event::{Key, KeyEvent};
 
 pub struct TopsidePanelClient<R, W> {
   framed_reader: FramedReader<R>,
@@ -82,8 +82,8 @@ struct ControlInner {
 }
 
 impl ControlHandle {
-  pub fn send_button_pressed(&self, button: Button) {
-    let _ = self.inner.commands_tx.send(Command::ButtonPressed(button));
+  pub fn send_key_event(&self, event: KeyEvent) {
+    let _ = self.inner.commands_tx.send(Command::KeyEvent(event));
   }
 
   /// Optional API to send in Wi-Fi model updates that can be rendered by the topside panel
@@ -171,10 +171,10 @@ impl <W: Write + Send> EventHandler<W> {
       let result = match command {
         Command::ReceivedMessage(m) => self.handle_message(m),
         Command::ReadError(e) => Err(FatalError(e.to_string())),
-        Command::ButtonPressed(b) => {
-          self.handle_button(b);
+        Command::KeyEvent(key_event) => {
+          self.handle_key_event(key_event);
           Ok(())
-        },
+        }
         Command::WifiModelUpdated(model) => {
           self.handle_wifi_model(model);
           Ok(())
@@ -228,15 +228,23 @@ impl <W: Write + Send> EventHandler<W> {
     }
   }
 
-  fn handle_button(&mut self, button: Button) {
-    match button {
-      Button::Up => {
-        let _ = self.handle_temp_updown(Direction::Up);
-      },
-      Button::Down => {
-        let _ = self.handle_temp_updown(Direction::Down);
-      },
-      _ => warn!("handle_button({button:?}): not implemented!"),
+  fn handle_key_event(&mut self, key_event: KeyEvent) {
+    if let KeyEvent::KeyUp { key } = key_event {
+      let handled = match &key {
+        Key::Up => {
+          self.handle_temp_updown(Direction::Up).is_ok()
+        },
+        Key::Down => {
+          self.handle_temp_updown(Direction::Down).is_ok()
+        },
+        _ => {
+          warn!("Key {key:?} not implemented!");
+          false
+        }
+      };
+      if !handled {
+        warn!("Not handled: {key:?}");
+      }
     }
   }
 
@@ -280,6 +288,6 @@ enum Command {
   ReceivedMessage(Message),
   WifiModelUpdated(wifi_module_lib::view_model::ViewModel),
   ReadError(anyhow::Error),
-  ButtonPressed(Button),
+  KeyEvent(KeyEvent),
   Shutdown,
 }

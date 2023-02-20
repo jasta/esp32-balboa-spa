@@ -1,6 +1,6 @@
-use crate::model::button::Button;
+use crate::model::key_event::{Key, KeyEvent};
 
 pub enum UserInputEvent {
   Quit,
-  ButtonPressed(Button),
+  KeyEvent(KeyEvent),
 }

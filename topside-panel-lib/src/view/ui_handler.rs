@@ -83,8 +83,8 @@ where
               self.control_handle.request_shutdown();
               return Ok(());
             }
-            UserInputEvent::ButtonPressed(b) => {
-              self.control_handle.send_button_pressed(b);
+            UserInputEvent::KeyEvent(b) => {
+              self.control_handle.send_key_event(b);
               backlight_manager.mark_user_activity(Instant::now());
             }
           }

@@ -3,7 +3,7 @@ use embedded_graphics::draw_target::DrawTarget;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use std::fmt::Display;
 use topside_panel_lib::view::ui_handler::UiDelayMs;
-use esp_idf_hal::delay::Ets;
+use esp_idf_hal::delay::{Ets, FreeRtos};
 use crate::backlight_control::HalBacklightControl;
 use crate::membrane_switch::MembraneSwitchWindowProxy;
 
@@ -52,3 +52,10 @@ impl UiDelayMs for EtsUiDelay {
   }
 }
 
+pub struct FreeRtosDelay;
+
+impl UiDelayMs for FreeRtosDelay {
+  fn delay_ms(&mut self, ms: u32) {
+    FreeRtos::delay_ms(ms);
+  }
+}

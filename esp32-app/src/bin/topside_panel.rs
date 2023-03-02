@@ -28,7 +28,7 @@ use esp_app::backlight_control::HalBacklightControl;
 use esp_app::esp_uart_transport::EspUartTransport;
 use esp_app::membrane_switch;
 use esp_app::membrane_switch::MembraneSwitchWindowProxy;
-use esp_app::ui_device::{EtsUiDelay, TftAndMembraneSwitchDevice};
+use esp_app::ui_device::{EtsUiDelay, FreeRtosDelay, TftAndMembraneSwitchDevice};
 use esp_app::wifi::EspWifiManager;
 
 fn main() -> anyhow::Result<()> {
@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
       transport,
       lcd_device,
       Some(esp_wifi),
-      EtsUiDelay);
+      FreeRtosDelay);
 
   info!("Starting app...");
   if let Err(e) = topside_app.run_loop() {

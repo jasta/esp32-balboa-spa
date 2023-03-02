@@ -40,4 +40,5 @@ build-std = ["std", "panic_abort"]
 # Builds against ESP-IDF master (mainline)
 #ESP_IDF_VERSION = "master"
 
-DEP_LV_CONFIG_PATH = { value = ".", relative = true }
+DEP_LV_CONFIG_PATH = { value = "../topside-panel-lib", relative = true }
+CROSS_COMPILE = { value = ".embuild/espressif/tools/riscv32-esp-elf/esp-2022r1-11.2.0/riscv32-esp-elf/bin/riscv32-esp-elf", relative = true }

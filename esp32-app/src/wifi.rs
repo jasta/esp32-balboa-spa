@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -11,11 +10,11 @@ use esp_idf_svc::handle::RawHandle;
 use esp_idf_svc::netif::IpEvent;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::wifi::{EspWifi, WifiEvent, WifiWait};
-use esp_idf_svc::wifi_dpp::{EspDppBootstrapped, EspDppBootstrapper, QrCode};
+use esp_idf_svc::wifi_dpp::{EspWifiDpp, QrCode};
 use esp_idf_sys::*;
-use log::error;
+use log::{error, info, warn};
 use wifi_module_lib::advertisement::Advertisement;
-use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
+use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiManager};
 
 const STARTED_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -50,7 +49,9 @@ impl<'w> EspWifiManager<'w> {
 impl<'w> WifiManager<'w> for EspWifiManager<'w> {
   type Error = EspError;
 
-  type DppBootstrapper<'d> = EspDppBootstrapperAdapter<'d, 'w>
+  type Credentials = ClientConfiguration;
+
+  type DppBootstrapped<'d> = EspDppBootstrappedAdapter<'d, 'w>
   where 'w: 'd, Self: 'd;
 
   fn advertisement(&self) -> &Advertisement {
@@ -78,11 +79,18 @@ impl<'w> WifiManager<'w> for EspWifiManager<'w> {
     }
   }
 
-  fn create_bootstrapper(&mut self) -> Result<Self::DppBootstrapper<'_>, Self::Error> {
-    let bootstrapper = EspDppBootstrapper::new(&mut self.wifi)?;
-    Ok(EspDppBootstrapperAdapter {
-      bootstrapper
+  fn dpp_bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
+    let bootstrapped = self.wifi.dpp_generate_qrcode(&[6], None, None)?;
+    Ok(EspDppBootstrappedAdapter {
+      bootstrapped,
     })
+  }
+
+  fn store_credentials(&mut self, credentials: Self::Credentials) -> Result<String, Self::Error> {
+    let network_name = get_network_name(&credentials)
+        .expect("Must have a valid target network!");
+    self.wifi.set_configuration(&Configuration::Client(credentials))?;
+    Ok(network_name)
   }
 
   fn sta_connect(&mut self) -> Result<(), StaAssociationError> {
@@ -99,19 +107,6 @@ impl<'w> WifiManager<'w> for EspWifiManager<'w> {
     Ok(())
   }
 }
-
-// impl<'w> WifiManagerDppExt<'w> for EspWifiManager<'w> {
-//   fn bootstrap_dpp(&mut self) -> Result<Self::DppListener<'_>, Self::Error> {
-//     let mut bootstrapper = EspDppBootstrapper::new(&mut self.wifi)?;
-//     let channels: Vec<_> = (1..=11).collect();
-//     let bootstrapped = bootstrapper.gen_qrcode(&channels, None, None)?;
-//     Ok(EspWifiDppListener {
-//       // bootstrapper,
-//       bootstrapped,
-//       _phantom: PhantomData,
-//     })
-//   }
-// }
 
 impl<'w> EspWifiManager<'w> {
   /// Perform STA connect using our own internal state machine for more precise control
@@ -182,42 +177,33 @@ impl<'w> EspWifiManager<'w> {
   }
 }
 
-pub struct EspDppBootstrapperAdapter<'d, 'w> {
-  bootstrapper: EspDppBootstrapper<'d, 'w>,
+pub struct EspDppBootstrappedAdapter<'d, 'w> {
+  bootstrapped: EspWifiDpp<'d, 'w, QrCode>,
 }
 
-impl<'d, 'w> WifiDppBootstrapper<'d, 'w> for EspDppBootstrapperAdapter<'d, 'w> {
+impl<'d, 'w> WifiDppBootstrapped<'d, 'w> for EspDppBootstrappedAdapter<'d, 'w> {
   type Error = EspError;
 
-  type DppBootstrapped<'b> = EspDppBootstrappedAdapter<'b>
-  where Self: 'b;
-
-  fn bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
-    let channels: Vec<_> = (1..=11).collect();
-    let bootstrapped =
-        self.bootstrapper.gen_qrcode(&channels, None, None)?;
-    Ok(EspDppBootstrappedAdapter {
-      bootstrapped,
-    })
-  }
-}
-
-pub struct EspDppBootstrappedAdapter<'b> {
-  bootstrapped: EspDppBootstrapped<'b, QrCode>,
-}
-
-impl<'b> WifiDppBootstrapped<'b> for EspDppBootstrappedAdapter<'b> {
-  type Error = EspError;
-
+  type Credentials = ClientConfiguration;
+  
   fn get_qr_code(&self) -> &str {
-    &self.bootstrapped.data.0
+    &self.bootstrapped.get_bootstrapped_data().0
   }
 
-  fn listen_then_wait(self) -> Result<String, Self::Error> {
-    let config = self.bootstrapped.listen_forever()?;
-    drop(self.bootstrapped);
-    Ok(get_network_name(&config)
-        .expect("Must have a valid target network!"))
+  fn listen_then_wait(self) -> Result<Self::Credentials, Self::Error> {
+    info!("Waiting for user to scan code...");
+    let mut bootstrapped = self.bootstrapped;
+    loop {
+      let listener = bootstrapped.start_listen()?;
+      match listener.wait_for_credentials() {
+        Ok(c) => return Ok(c),
+        Err(e) => {
+          warn!("DPP error: {e}, retrying...");
+          bootstrapped = listener.attempt_retry()
+              .expect("Please patch esp-idf with esp_supp_dpp_start_listen fix!");
+        }
+      }
+    }
   }
 }
 

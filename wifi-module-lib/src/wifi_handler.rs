@@ -8,7 +8,7 @@ use log::{error, info, warn};
 use common_lib::view_model_event_handle::ViewEvent;
 use crate::command::Command;
 use crate::view_model::{ConnectionState, Mode, NominalModel, ProvisioningParams, TroubleAssociatingModel, UnprovisionedModel, ViewModel};
-use crate::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
+use crate::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiManager};
 
 /// Amount of time to allow for a successful connection before signaling to the UI that
 /// something might be wrong.
@@ -122,26 +122,27 @@ impl<'a, W: WifiManager<'a>> WifiHandler<W> {
     let network_name = match self.wifi_manager.get_sta_network_name().map_err(map_wifi_err::<W>)? {
       None => {
         info!("No credentials stored, preparing to use Wi-Fi Easy Connect...");
-        let mut dpp_bootstrapper =
-            self.wifi_manager.create_bootstrapper().map_err(map_dpp_err::<W>)?;
+        let creds = {
+          let dpp_bootstrapped =
+              self.wifi_manager.dpp_bootstrap().map_err(map_dpp_err::<W>)?;
 
-        info!("Generating QR code...");
-        let dpp_bootstrapped =
-            dpp_bootstrapper.bootstrap().map_err(map_dpp_err::<W>)?;
-        let qr_code = dpp_bootstrapped.get_qr_code().to_owned();
+          info!("Generating QR code...");
+          let qr_code = dpp_bootstrapped.get_qr_code().to_owned();
 
-        let model_manager = &mut self.model_manager;
-        model_manager.state.waiting_for_dpp = Some(QrCode(qr_code));
-        model_manager.maybe_emit_view_model();
+          let model_manager = &mut self.model_manager;
+          model_manager.state.waiting_for_dpp = Some(QrCode(qr_code));
+          model_manager.maybe_emit_view_model();
 
-        info!("Got QR code, waiting for user to provision...");
-        let name = dpp_bootstrapped.listen_then_wait().map_err(map_dpp_err::<W>)?;
-        model_manager.state.waiting_for_dpp = None;
-        name
+          info!("Got QR code, waiting for user to provision...");
+          dpp_bootstrapped.listen_then_wait().map_err(map_dpp_err::<W>)?
+        };
+
+        self.wifi_manager.store_credentials(creds).map_err(map_wifi_err::<W>)?
       }
       Some(name) => name,
     };
 
+    self.model_manager.state.waiting_for_dpp = None;
     self.state_mut().target_ssid = Some(network_name.clone());
     Ok(network_name)
   }

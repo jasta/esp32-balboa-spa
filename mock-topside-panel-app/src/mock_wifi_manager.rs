@@ -1,13 +1,11 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{mem, thread};
-use std::marker::PhantomData;
 use std::time::Duration;
 use enum_kinds::EnumKind;
-use log::info;
 use MockWifiCommand::{AnswerInit, AnswerStaConnect};
 use wifi_module_lib::advertisement::Advertisement;
-use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiDppBootstrapper, WifiManager};
-use crate::mock_wifi_manager::MockWifiCommand::{AnswerDppListenThenWait, AnswerStaNetworkName, AnswerWaitWhileConnected, AnswerDppGenerateQr, Sleep};
+use wifi_module_lib::wifi_manager::{StaAssociationError, WifiDppBootstrapped, WifiManager};
+use crate::mock_wifi_manager::MockWifiCommand::{AnswerDppListenThenWait, AnswerStaNetworkName, AnswerWaitWhileConnected, AnswerDppGenerateQr, Sleep, AnswerStoreCredentials};
 
 const DEFAULT_CONNECT_DELAY: Duration = Duration::from_secs(2);
 
@@ -56,7 +54,9 @@ impl MockWifiManager {
 impl WifiManager<'static> for MockWifiManager {
   type Error = String;
 
-  type DppBootstrapper<'d> = MockDppBootstrapper<'d>
+  type Credentials = String;
+
+  type DppBootstrapped<'d> = MockDppBootstrapped<'d>
   where Self: 'd;
 
   fn advertisement(&self) -> &Advertisement {
@@ -77,12 +77,25 @@ impl WifiManager<'static> for MockWifiManager {
     }
   }
 
-  fn create_bootstrapper(&mut self) -> Result<Self::DppBootstrapper<'_>, Self::Error> {
-    Ok(MockDppBootstrapper {
+  fn dpp_bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
+    let qr_code = match self.expect_command(MockWifiCommandKind::AnswerDppGenerateQr)? {
+      AnswerDppGenerateQr(r) => r?,
+      _ => panic!(),
+    };
+
+    Ok(MockDppBootstrapped {
+      qr_code,
       wifi_manager: self,
-      _phantom: PhantomData,
     })
   }
+
+  fn store_credentials(&mut self, credentials: Self::Credentials) -> Result<Self::Credentials, Self::Error> {
+    match self.expect_command(MockWifiCommandKind::AnswerStoreCredentials)? {
+      AnswerStoreCredentials(r) => r,
+      _ => panic!(),
+    }
+  }
+
 
   fn sta_connect(&mut self) -> Result<(), StaAssociationError> {
     match self.expect_command(MockWifiCommandKind::AnswerStaConnect) {
@@ -100,43 +113,21 @@ impl WifiManager<'static> for MockWifiManager {
   }
 }
 
-pub struct MockDppBootstrapper<'d> {
-  wifi_manager: &'d mut MockWifiManager,
-  _phantom: PhantomData<&'d ()>,
-}
-
-impl<'d> WifiDppBootstrapper<'d, 'static> for MockDppBootstrapper<'d> {
-  type Error = String;
-
-  type DppBootstrapped<'b> = MockDppBootstrapped<'b>
-  where Self: 'b;
-
-  fn bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error> {
-    let qr_code = match self.wifi_manager.expect_command(MockWifiCommandKind::AnswerDppGenerateQr)? {
-      AnswerDppGenerateQr(r) => r?,
-      _ => panic!(),
-    };
-
-    Ok(MockDppBootstrapped {
-      qr_code,
-      wifi_manager: &mut self.wifi_manager,
-    })
-  }
-}
-
 pub struct MockDppBootstrapped<'b> {
   qr_code: String,
   wifi_manager: &'b mut MockWifiManager,
 }
 
-impl<'b> WifiDppBootstrapped<'b> for MockDppBootstrapped<'b> {
+impl<'d> WifiDppBootstrapped<'d, 'static> for MockDppBootstrapped<'d> {
   type Error = String;
+
+  type Credentials = String;
 
   fn get_qr_code(&self) -> &str {
     &self.qr_code
   }
 
-  fn listen_then_wait(self) -> Result<String, Self::Error> {
+  fn listen_then_wait(self) -> Result<Self::Credentials, Self::Error> {
     match self.wifi_manager.expect_command(MockWifiCommandKind::AnswerDppListenThenWait)? {
       AnswerDppListenThenWait(r) => r,
       _ => panic!(),
@@ -171,6 +162,7 @@ impl ControlHandle {
       AnswerDppGenerateQr(Ok("Hello, world".to_owned())),
       Sleep(Duration::from_secs(5)),
       AnswerDppListenThenWait(Ok("mynetwork".to_owned())),
+      AnswerStoreCredentials(Ok("mynetwork".to_owned())),
       Sleep(DEFAULT_CONNECT_DELAY),
       AnswerStaConnect(Ok(())),
       // Never AnswerWaitWhileConnected, just stay connected...
@@ -224,6 +216,7 @@ pub enum MockWifiCommand {
   AnswerStaNetworkName(Result<Option<String>, String>),
   AnswerDppGenerateQr(Result<String, String>),
   AnswerDppListenThenWait(Result<String, String>),
+  AnswerStoreCredentials(Result<String, String>),
   AnswerStaConnect(Result<(), StaAssociationError>),
   AnswerWaitWhileConnected(Result<(), String>),
 }

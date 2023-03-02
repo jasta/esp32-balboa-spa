@@ -6,9 +6,13 @@ pub trait WifiManager<'w> {
   /// is in a bad state or out of memory).
   type Error: Debug + Display;
 
+  /// Opaque credentials type that carries the returned credentials from [Self::DppBootstrapped]
+  /// to the wifi manager.
+  type Credentials;
+
   /// Type of the associated DPP flow manager.  Held as a separate type since there is usually
   /// a mutable reference overlap with the lifecycle of the WifiManager.
-  type DppBootstrapper<'d>: WifiDppBootstrapper<'d, 'w, Error = Self::Error>
+  type DppBootstrapped<'d>: WifiDppBootstrapped<'d, 'w, Credentials = Self::Credentials, Error = Self::Error>
   where 'w: 'd, Self: 'd;
 
   /// Provides the advertisement we'll use when peers are trying to discover us.
@@ -23,7 +27,11 @@ pub trait WifiManager<'w> {
 
   /// Generate a QR code that Wi-Fi Easy Connect clients can use to send us credentials.  This
   /// method assumes [Self::get_sta_network_name] was None.
-  fn create_bootstrapper(&mut self) -> Result<Self::DppBootstrapper<'_>, Self::Error>;
+  fn dpp_bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error>;
+
+  /// Store credentials provided by [Self::dpp_bootstrap].  Returns the network name
+  /// as a convenience to avoid calling [Self::get_sta_network_name] again.
+  fn store_credentials(&mut self, credentials: Self::Credentials) -> Result<String, Self::Error>;
 
   /// Perform a blocking station-mode connect operation then block the calling thread while we
   /// remain connected.  This is designed to be run in a dedicated thread that just loops to
@@ -36,25 +44,17 @@ pub trait WifiManager<'w> {
   fn wait_while_connected(&mut self) -> Result<(), Self::Error>;
 }
 
-pub trait WifiDppBootstrapper<'d, 'w> {
+pub trait WifiDppBootstrapped<'d, 'w> {
   type Error: Debug + Display;
 
-  type DppBootstrapped<'b>: WifiDppBootstrapped<'b, Error = Self::Error>
-  where Self: 'b;
-
-  fn bootstrap(&mut self) -> Result<Self::DppBootstrapped<'_>, Self::Error>;
-}
-
-pub trait WifiDppBootstrapped<'b> {
-  type Error: Debug + Display;
+  type Credentials;
 
   /// Access the QR code associated with this bootstrapped DPP session.
   fn get_qr_code(&self) -> &str;
 
-  /// Listen for Wi-Fi Easy Connect credentials.  Store them upon success which enables us to move
-  /// to [Self::sta_connect] next.  This method blocks until the credentials are available or
-  /// a non-recoverable error occurs.  Returns the STA target network name as a convenience.
-  fn listen_then_wait(self) -> Result<String, Self::Error>;
+  /// Listen for Wi-Fi Easy Connect credentials.  This method blocks until the credentials are
+  /// available or a non-recoverable error occurs.
+  fn listen_then_wait(self) -> Result<Self::Credentials, Self::Error>;
 }
 
 #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]

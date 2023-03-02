@@ -2,12 +2,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 use anyhow::anyhow;
 use log::LevelFilter;
+use lvgl::Event;
 use common_lib::transport::StdTransport;
+use common_lib::view_model_event_handle::{ViewEvent, ViewModelEventHandle};
 use topside_panel_lib::network::topside_panel_client::TopsidePanelClient;
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
 use topside_panel_lib::model::view_model::{ConnectionState, ViewModel};
-use topside_panel_lib::model::view_model_event_handle::{Event, ViewModelEventHandle};
 
 #[test]
 fn test_get_model_updates() -> anyhow::Result<()> {
@@ -52,9 +53,9 @@ fn test_get_model_updates() -> anyhow::Result<()> {
   Ok(())
 }
 
-fn next_model(event_handle: &ViewModelEventHandle, timeout: Duration) -> anyhow::Result<ViewModel> {
+fn next_model(event_handle: &ViewModelEventHandle<ViewModel>, timeout: Duration) -> anyhow::Result<ViewModel> {
   match event_handle.events_rx.recv_timeout(timeout)? {
-    Event::ModelUpdated(model) => Ok(model),
+    ViewEvent::ModelUpdated(model) => Ok(model),
   }
 }
 

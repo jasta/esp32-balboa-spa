@@ -391,13 +391,13 @@ mod tests {
   }
 
   #[test]
-  //#[timeout(7000)]
+  #[timeout(7000)]
   fn stress_test() -> anyhow::Result<()> {
     let payload_len = 40;
     let num_blocks = 3;
     let num_transports = 3;
 
-    env_logger::builder()
+    let _ = env_logger::builder()
         .filter_level(LevelFilter::Debug)
         .is_test(true)
         .format(|buf, record| {
@@ -412,7 +412,7 @@ mod tests {
             record.args()
           )
         })
-        .init();
+        .try_init();
 
     let ((cx_in, s_out), (s_in, cx_out)) = (pipe::pipe(), pipe::pipe());
 //     let ((cx_in, s_out), (s_in, cx_out)) = (simple_pipe(), simple_pipe());

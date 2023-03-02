@@ -29,7 +29,7 @@ impl LcdDevice for SimulatorDevice {
   type Backlight = MockBacklight;
 
   fn setup(self) -> (Self::Display, Self::Window, Self::Backlight) {
-    let display = SimulatorDisplay::<Rgb565>::new(Size::new(320, 240));
+    let display = SimulatorDisplay::<Rgb565>::new(Size::new(480, 320));
     let output_settings = OutputSettingsBuilder::new()
         .scale(2)
         .build();

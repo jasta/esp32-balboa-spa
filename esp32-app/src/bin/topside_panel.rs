@@ -1,10 +1,12 @@
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use debounced_pin::{ActiveLow, Debounce, DebouncedInputPin, DebounceState};
 use display_interface_spi::SPIInterfaceNoCS;
+use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::DrawTarget;
 use embedded_hal::digital::v2::{InputPin, OutputPin, PinState};
 use embedded_hal::spi::MODE_0;
@@ -23,6 +25,7 @@ use log::{error, info};
 use mipidsi::{Builder, ColorOrder, Orientation};
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
 use topside_panel_lib::model::key_event::Key;
+use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl};
 use wifi_module_lib::advertisement::Advertisement;
 use esp_app::backlight_control::HalBacklightControl;
 use esp_app::esp_uart_transport::EspUartTransport;
@@ -58,20 +61,21 @@ fn main() -> anyhow::Result<()> {
       Dma::Disabled,
       None::<Gpio0>,
       &spi::config::Config::new()
-          .baudrate(40.MHz().into())
+          .baudrate(80.MHz().into())
           .data_mode(V02Type(MODE_0).into())
           .write_only(true)
   )?;
   let display_interface = SPIInterfaceNoCS::new(
       tft_device,
       PinDriver::output(peripherals.pins.gpio4)?);
-  let display = Builder::ili9341_rgb565(display_interface)
+  let mut display = Builder::ili9486_rgb565(display_interface)
       .with_orientation(Orientation::Landscape(false))
       .with_color_order(ColorOrder::Bgr)
-      .init(&mut Ets, None::<PinDriver<AnyOutputPin, Output>>)
+      .init(&mut Ets, Some(PinDriver::output(peripherals.pins.gpio18)?))
       .unwrap();
 
   info!("Setting up app...");
+  let backlight_control = HalBacklightControl::new(PinDriver::output(peripherals.pins.gpio5)?);
   let lcd_device = TftAndMembraneSwitchDevice::new(
       display,
       MembraneSwitchWindowProxy::new(vec![
@@ -80,7 +84,7 @@ fn main() -> anyhow::Result<()> {
         (membrane_switch::debounced(peripherals.pins.gpio10.downgrade())?, Key::Jets1),
         (membrane_switch::debounced(peripherals.pins.gpio8.downgrade())?, Key::Light),
       ]),
-      HalBacklightControl::new(PinDriver::output(peripherals.pins.gpio5)?));
+      backlight_control);
 
   let nvs = EspDefaultNvsPartition::take()?;
   let esp_wifi = EspWifiManager::new(

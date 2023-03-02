@@ -31,7 +31,7 @@ impl TemperatureWidget {
 
     let mut linemeter = Linemeter::new(parent)?;
     linemeter.add_style(Part::Main, linemeter_style.clone())?;
-    linemeter.set_size(200, 200)?;
+    linemeter.set_size(240, 240)?;
     linemeter.set_scale(280, 100)?;
     linemeter.set_align(parent, Align::Center, 0, 0)?;
 

@@ -21,6 +21,7 @@ use esp_idf_hal::spi::SpiDeviceDriver;
 use esp_idf_hal::units::FromValueType;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use esp_idf_sys::esp_app_desc;
 use log::{error, info};
 use mipidsi::{Builder, ColorOrder, Orientation};
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
@@ -33,6 +34,8 @@ use esp_app::membrane_switch;
 use esp_app::membrane_switch::MembraneSwitchWindowProxy;
 use esp_app::ui_device::{EtsUiDelay, FreeRtosDelay, TftAndMembraneSwitchDevice};
 use esp_app::wifi::EspWifiManager;
+
+esp_app_desc!();
 
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();

@@ -16,7 +16,7 @@ use crate::view::user_input_event::UserInputEvent;
 use crate::view::window_proxy::WindowProxy;
 use crate::model::view_model::ViewModel;
 use crate::view::backlight_manager::BacklightManager;
-use crate::view::screen_flipper::ScreenFlipper;
+use crate::view::screen_flipper::{ScreenFlipper, ScreenOptions};
 
 /// Approximate time between each frame draw.
 const TARGET_DRAW_INTERVAL: Duration = Duration::from_millis(20);
@@ -52,7 +52,7 @@ where
 
   pub fn run_loop<DELAY: UiDelayMs>(mut self, mut delay: DELAY) -> LvResult<()> {
     info!("Setting up display...");
-    let (display, mut window, mut backlight) =
+    let (display, mut window, backlight) =
         self.lcd_device.setup();
 
     info!("Initializing lvgl display driver...");
@@ -71,10 +71,13 @@ where
     info!("Starting UI event loop...");
     let mut last_tick = Instant::now();
     let mut backlight_manager = BacklightManager::init(backlight);
+    let mut current_options = None::<ScreenOptions>;
     loop {
       ui.task_handler();
 
-      backlight_manager.detect_inactivity(last_tick);
+      let force_backlight = current_options.as_ref()
+          .map_or(false, |o| o.force_backlight);
+      backlight_manager.detect_inactivity(last_tick, force_backlight);
 
       window.update(ui.get_display_ref().unwrap());
 
@@ -100,7 +103,9 @@ where
       }
 
       if let Some(model) = self.app_events.try_recv_latest().unwrap() {
-        screen_flipper.bind_model(model)?;
+        if let Some(new_options) = screen_flipper.bind_model(model)? {
+          current_options = Some(new_options);
+        }
       }
 
       let now = Instant::now();

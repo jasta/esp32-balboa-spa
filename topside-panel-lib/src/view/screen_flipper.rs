@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::ptr;
 use log::info;
 use lvgl::{LvResult, Obj};
@@ -18,8 +17,19 @@ pub trait ScreenSelector {
 }
 
 pub trait Screen {
+  /// Options to apply to the UiHandler when this screen is loaded.  These options must be
+  /// fixed and cannot changed across [Self::bind_model] calls!
+  fn options(&self) -> ScreenOptions {
+    Default::default()
+  }
+
   fn get_root(&self) -> &Obj;
   fn bind_model(&mut self, model: ViewModel) -> LvResult<()>;
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct ScreenOptions {
+  pub force_backlight: bool,
 }
 
 pub type FactoryFn = dyn Fn() -> LvResult<BoxedScreen>;
@@ -36,7 +46,7 @@ impl ScreenFlipper {
     Default::default()
   }
 
-  pub fn bind_model(&mut self, model: ViewModel) -> LvResult<()> {
+  pub fn bind_model(&mut self, model: ViewModel) -> LvResult<Option<ScreenOptions>> {
     let kind = self.select_screen(&model);
     let changed_screen = if self.active != Some(kind) {
       self.active = Some(kind);
@@ -44,10 +54,12 @@ impl ScreenFlipper {
       true
     } else { false };
     let screen = self.get_or_create_screen(kind)?;
-    if changed_screen {
+    let new_options = if changed_screen {
       disp_load_scr(screen.get_root())?;
-    }
-    screen.bind_model(model)
+      Some(screen.options())
+    } else { None };
+    screen.bind_model(model)?;
+    Ok(new_options)
   }
 
   fn get_or_create_screen(&mut self, kind: &'static str) -> LvResult<&mut BoxedScreen> {

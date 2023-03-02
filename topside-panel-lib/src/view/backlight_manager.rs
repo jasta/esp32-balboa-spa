@@ -27,8 +27,10 @@ impl<B: BacklightControl> BacklightManager<B> {
 
   }
 
-  pub fn detect_inactivity(&mut self, now: Instant) {
-    if self.current_value != BacklightBrightness::Off {
+  pub fn detect_inactivity(&mut self, now: Instant, force_backlight: bool) {
+    if force_backlight {
+      self.maybe_set_brightness(BacklightBrightness::FullOn);
+    } else if self.current_value != BacklightBrightness::Off {
       let elapsed = now - self.last_user_interaction;
       if elapsed > BACKLIGHT_USER_WAIT {
         self.maybe_set_brightness(BacklightBrightness::Off);

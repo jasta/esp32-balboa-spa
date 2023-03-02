@@ -7,7 +7,7 @@ use crate::model::view_model::ViewModel;
 use crate::view::{color_util};
 use crate::view::qr_code_widget::{QrCodeWidget, SetFromSourceError};
 use crate::view::qr_code_widget::Source::Text;
-use crate::view::screen_flipper::{BoxedScreen, Screen, ScreenSelector};
+use crate::view::screen_flipper::{BoxedScreen, Screen, ScreenOptions, ScreenSelector};
 
 pub(crate) const LABEL_PRIMARY_COLOR: u32 = 0x000000;
 
@@ -73,6 +73,12 @@ impl ScreenSelector for ProvisioningScreen {
 }
 
 impl Screen for ProvisioningScreen {
+  fn options(&self) -> ScreenOptions {
+    ScreenOptions {
+      force_backlight: true,
+    }
+  }
+
   fn get_root(&self) -> &Obj {
     &self.screen
   }

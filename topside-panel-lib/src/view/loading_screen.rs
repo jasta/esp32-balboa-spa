@@ -9,7 +9,7 @@ use crate::view::lvgl_ext::{obj_set_auto_realign, style_set_text_font};
 use crate::view::main_screen;
 use crate::view::main_screen::LABEL_PRIMARY_COLOR;
 use crate::view::palette_styles::PaletteStyles;
-use crate::view::screen_flipper::{BoxedScreen, Screen, ScreenSelector};
+use crate::view::screen_flipper::{BoxedScreen, Screen, ScreenOptions, ScreenSelector};
 
 pub struct LoadingScreen {
   screen: Obj,
@@ -69,6 +69,12 @@ impl ScreenSelector for LoadingScreen {
 }
 
 impl Screen for LoadingScreen {
+  fn options(&self) -> ScreenOptions {
+    ScreenOptions {
+      force_backlight: true,
+    }
+  }
+
   fn get_root(&self) -> &Obj {
     &self.screen
   }

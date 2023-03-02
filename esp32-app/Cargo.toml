@@ -11,8 +11,13 @@ opt-level = "s"
 debug = true # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
 
+[package.metadata.esp-idf-sys]
+esp_idf_repository = "https://github.com/jasta/esp-idf"
+esp_idf_version = "branch:dpp_fix_v5.0.1"
+
 [patch.crates-io]
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
+#esp-idf-svc = { path = "/home/jasta/software/esp-idf-svc" }
 esp-idf-svc = { git = "https://github.com/jasta/esp-idf-svc", branch = "esp_dpp" }
 
 [dependencies]

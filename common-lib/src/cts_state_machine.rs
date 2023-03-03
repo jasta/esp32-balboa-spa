@@ -94,6 +94,7 @@ impl MessageState for StateWaitingForChannelAssignment {
     match (args.channel, args.mt) {
       (&Channel::MulticastChannelAssignment, &MessageType::NewClientClearToSend()) => {
         if self.requested_at.elapsed() >= DEFAULT_NEW_CLIENT_RETRY_WAIT {
+          args.context.allocator_token = None;
           args.sm.move_to_state(StateWaitingForNewClientCTS);
         }
         HandledNoReply

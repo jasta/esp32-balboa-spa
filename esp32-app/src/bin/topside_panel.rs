@@ -1,18 +1,14 @@
-use std::fmt::Display;
-use std::marker::PhantomData;
+use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
-
 use anyhow::anyhow;
+use common_lib::transport::Transport;
 use debounced_pin::{ActiveLow, Debounce, DebouncedInputPin, DebounceState};
 use display_interface_spi::SPIInterfaceNoCS;
-use embedded_graphics::pixelcolor::Rgb565;
-use embedded_graphics::prelude::DrawTarget;
 use embedded_hal::digital::v2::{InputPin, OutputPin, PinState};
 use embedded_hal::spi::MODE_0;
 use esp_idf_hal::delay::Ets;
 use esp_idf_hal::gpio::{AnyInputPin, AnyIOPin, AnyOutputPin, Gpio0, Input, IOPin, Output, PinDriver, Pull};
-use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_hal::spi;
 use esp_idf_hal::spi::config::V02Type;
@@ -20,9 +16,10 @@ use esp_idf_hal::spi::Dma;
 use esp_idf_hal::spi::SpiDeviceDriver;
 use esp_idf_hal::units::FromValueType;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
+use esp_idf_svc::log::EspLogger;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_sys::esp_app_desc;
-use log::{error, info};
+use log::{error, info, LevelFilter};
 use mipidsi::{Builder, ColorOrder, Orientation};
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
 use topside_panel_lib::model::key_event::Key;
@@ -37,10 +34,15 @@ use esp_app::wifi::EspWifiManager;
 
 esp_app_desc!();
 
+static LOGGER: EspLogger = EspLogger;
+
 fn main() -> anyhow::Result<()> {
   esp_idf_sys::link_patches();
 
-  esp_idf_svc::log::EspLogger::initialize_default();
+  // EspLogger::initialize_default();
+  LOGGER.initialize();
+  LOGGER.set_target_level("spi_master", LevelFilter::Info);
+  log::set_logger(&LOGGER).unwrap();
 
   let peripherals = Peripherals::take()
       .ok_or_else(|| anyhow!("Unable to take peripherals"))?;

@@ -416,7 +416,13 @@ impl<W: Write + Send> EventHandler<W> {
     match timer_id {
       TimerId::SendTickMessage => {
         if let Some(smf) = self.channel_manager_mut().start_send_message()? {
-          let tick_action = self.state.timer_tracker.next_action();
+          let channel_manager = &self.state.channel_manager;
+          let tick_action = self.state.timer_tracker.next_action(|| {
+            channel_manager
+                .allocated_channels()
+                .copied()
+                .collect()
+          });
           let message = match tick_action {
             TickAction::NewClientClearToSend => {
               Some(smf.maybe_expect_reply(
@@ -428,18 +434,12 @@ impl<W: Write + Send> EventHandler<W> {
                 MessageType::StatusUpdate(self.state.mock_spa.as_status())
                     .to_message(Channel::MulticastBroadcast)?))
             }
-            TickAction::ClearToSend { index } => {
-              let num_channels = self.channel_manager().num_channels();
-              if num_channels == 0 {
-                None
-              } else {
-                let client_index = index % num_channels;
-                let target = Channel::new_client_channel(client_index)
-                    .map_err(|_| {
-                      HandlingError::FatalError("Inconsistent channel overflow behaviour!".to_owned())
-                    })?;
-                Some(smf.expect_reply(MessageType::ClearToSend().to_message(target)?))
-              }
+            TickAction::ClearToSend { channel } => {
+              Some(smf.expect_reply(MessageType::ClearToSend().to_message(channel)?))
+            }
+            TickAction::Nothing => {
+              // No clients to send CTS too, and we don't want to spam NewClientCTS/StatusUpdate.
+              None
             }
           };
           if let Some(message) = message {

@@ -59,6 +59,14 @@ impl ChannelManager {
     self.channel_tracker.len()
   }
 
+  pub fn allocated_channels(&self) -> impl Iterator<Item=&Channel> {
+    self.channel_tracker.channels_iter()
+  }
+
+  pub fn is_channel_allocated(&self, channel: &Channel) -> bool {
+    self.channel_tracker.is_allocated(channel)
+  }
+
   pub fn select_channel(&mut self, key: DeviceKey) -> Result<Channel, HandlingError> {
     self.channel_tracker.select_channel(key)
   }

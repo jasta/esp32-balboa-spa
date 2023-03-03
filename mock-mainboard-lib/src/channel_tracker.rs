@@ -56,6 +56,10 @@ impl ChannelTracker {
     self.records.len()
   }
 
+  pub fn channels_iter(&self) -> impl Iterator<Item=&Channel> {
+    self.records.keys()
+  }
+
   pub fn select_channel(&mut self, key: DeviceKey) -> Result<Channel, HandlingError> {
     let len = self.lookup_by_device.len();
     let channel = match self.lookup_by_device.entry(key) {

@@ -25,16 +25,10 @@ fn main() -> anyhow::Result<()> {
 
   let transport = EspUartTransport::new(
       peripherals.uart1,
-      peripherals.pins.gpio3,
       peripherals.pins.gpio0,
+      peripherals.pins.gpio3,
       Some(peripherals.pins.gpio1),
       None)?;
-  // let transport = EspUartTransport::new(
-  //   peripherals.uart1,
-  //   peripherals.pins.gpio0,
-  //   peripherals.pins.gpio1,
-  //   Some(peripherals.pins.gpio9),
-  //   None)?;
 
   info!("UART transport initialized");
 

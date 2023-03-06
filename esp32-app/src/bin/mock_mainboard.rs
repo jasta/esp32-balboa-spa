@@ -8,6 +8,8 @@ use esp_idf_sys::esp_app_desc;
 use log::{info, warn};
 use mock_mainboard_lib::channel_manager::CtsEnforcementPolicy;
 use mock_mainboard_lib::main_board::MainBoard;
+use topside_panel_lib::app::status_printer::BoardMonitor;
+use esp_app::esp_status_printer::EspStatusPrinter;
 use esp_app::esp_uart_transport::EspUartTransport;
 
 esp_app_desc!();
@@ -40,6 +42,10 @@ fn main() -> anyhow::Result<()> {
       .set_init_delay(Duration::from_secs(10))
       .set_clear_to_send_policy(CtsEnforcementPolicy::Never, Duration::from_millis(20));
   let (shutdown_handle, runner) = logic.into_runner();
+
+  thread::spawn(move || {
+    EspStatusPrinter.run_loop()
+  });
 
   info!("Main board setup complete, starting...");
   if let Err(e) = runner.run_loop() {

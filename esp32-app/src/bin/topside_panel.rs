@@ -26,6 +26,7 @@ use topside_panel_lib::model::key_event::Key;
 use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl};
 use wifi_module_lib::advertisement::Advertisement;
 use esp_app::backlight_control::HalBacklightControl;
+use esp_app::esp_status_printer::EspStatusPrinter;
 use esp_app::esp_uart_transport::EspUartTransport;
 use esp_app::membrane_switch;
 use esp_app::membrane_switch::MembraneSwitchWindowProxy;
@@ -91,18 +92,19 @@ fn main() -> anyhow::Result<()> {
       ]),
       backlight_control);
 
-  let nvs = EspDefaultNvsPartition::take()?;
-  let esp_wifi = EspWifiManager::new(
-      peripherals.modem,
-      event_loop,
-      nvs,
-      Advertisement::fake_balboa().name)?;
+  // let nvs = EspDefaultNvsPartition::take()?;
+  // let esp_wifi = EspWifiManager::new(
+  //     peripherals.modem,
+  //     event_loop,
+  //     nvs,
+  //     Advertisement::fake_balboa().name)?;
 
   let topside_app = TopsidePanelApp::new(
       transport,
       lcd_device,
-      Some(esp_wifi),
-      FreeRtosDelay);
+      None::<EspWifiManager>,
+      FreeRtosDelay,
+      Some(EspStatusPrinter));
 
   info!("Starting app...");
   if let Err(e) = topside_app.run_loop() {

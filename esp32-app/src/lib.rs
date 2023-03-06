@@ -7,3 +7,4 @@ pub mod display_factory;
 pub mod membrane_switch;
 pub mod backlight_control;
 pub mod ui_device;
+pub mod esp_status_printer;

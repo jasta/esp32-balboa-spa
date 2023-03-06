@@ -5,6 +5,7 @@ use log::info;
 use common_lib::transport::StdTransport;
 use clap::Parser;
 use mock_wifi_manager::MockWifiManager;
+use topside_panel_lib::app::status_printer::{BoardMonitor, NoopBoardMonitor};
 use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
 use crate::args::{Args, WifiMode};
 use crate::peer_runner::PeerManager;
@@ -57,7 +58,8 @@ fn main() -> anyhow::Result<()> {
       StdTransport::new(client_in, client_out),
       SimulatorDevice,
       Some(mock_wifi),
-      SleepDelay);
+      SleepDelay,
+      None::<NoopBoardMonitor>);
 
   let mut peer_handle = peer_manager.control_handle;
   let peer_runner = peer_manager.runner;

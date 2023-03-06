@@ -4,25 +4,27 @@ use std::thread;
 use std::time::Duration;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::PixelColor;
-use log::{info};
+use log::info;
 use lvgl::Color;
-use common_lib::bus_transport::{BusTransport};
+use common_lib::bus_transport::BusTransport;
 use common_lib::transport::Transport;
 use wifi_module_lib::wifi_manager::WifiManager;
 use wifi_module_lib::wifi_module_client::WifiModuleClient;
+use crate::app::status_printer::BoardMonitor;
 use crate::network::topside_panel_client::TopsidePanelClient;
 use crate::view::lcd_device::LcdDevice;
 use crate::view::ui_handler::{UiDelayMs, UiHandler};
 
-pub struct TopsidePanelApp<R, W, T, LCD, WIFI, DELAY> {
+pub struct TopsidePanelApp<R, W, T, LCD, WIFI, DELAY, STATUS> {
   transport: T,
   _phantom_rw: PhantomData<(R, W)>,
   lcd_device: LCD,
   wifi_manager: Option<WIFI>,
   delay: DELAY,
+  status_printer: Option<STATUS>,
 }
 
-impl<R, W, T, LCD, WIFI, DELAY> TopsidePanelApp<R, W, T, LCD, WIFI, DELAY>
+impl<R, W, T, LCD, WIFI, DELAY, STATUS> TopsidePanelApp<R, W, T, LCD, WIFI, DELAY, STATUS>
 where
     R: Read + Send + 'static,
     W: Write + Send + 'static,
@@ -32,12 +34,14 @@ where
     <<LCD as LcdDevice>::Display as DrawTarget>::Color: PixelColor + From<Color>,
     WIFI: WifiManager<'static> + Send + 'static,
     DELAY: UiDelayMs + Send + 'static,
+    STATUS: BoardMonitor + Send + 'static,
 {
   pub fn new(
       transport: T,
       lcd_device: LCD,
       wifi_manager: Option<WIFI>,
       delay: DELAY,
+      status_printer: Option<STATUS>,
   ) -> Self {
     Self {
       transport,
@@ -45,6 +49,7 @@ where
       lcd_device,
       wifi_manager,
       delay,
+      status_printer
     }
   }
 
@@ -70,7 +75,15 @@ where
     let topside_client = TopsidePanelClient::new(topside_transport);
 
     if let Some(bus_switch) = bus_switch {
+      info!("Starting bus switch...");
       bus_switch.start();
+    }
+
+    if let Some(status_printer) = self.status_printer {
+      info!("Status printer...");
+      thread::Builder::new()
+          .name("StatusPrinter".to_owned())
+          .spawn(move || status_printer.run_loop().unwrap())?;
     }
 
     info!("Starting topside runner...");

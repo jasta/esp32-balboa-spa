@@ -1,6 +1,6 @@
 use std::thread;
 use std::time::Duration;
-use esp_idf_sys::MALLOC_CAP_DEFAULT;
+use esp_idf_sys::{MALLOC_CAP_DEFAULT, MALLOC_CAP_DMA, MALLOC_CAP_INTERNAL, MALLOC_CAP_SPIRAM};
 use topside_panel_lib::app::status_printer::BoardMonitor;
 
 pub struct EspStatusPrinter;
@@ -16,5 +16,5 @@ impl BoardMonitor for EspStatusPrinter {
 }
 
 fn print_heap() {
-  unsafe { esp_idf_sys::heap_caps_print_heap_info(MALLOC_CAP_DEFAULT) };
+  unsafe { esp_idf_sys::heap_caps_print_heap_info(MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL) };
 }

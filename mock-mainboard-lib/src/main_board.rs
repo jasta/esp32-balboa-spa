@@ -435,7 +435,14 @@ impl<W: Write + Send> EventHandler<W> {
                     .to_message(Channel::MulticastBroadcast)?))
             }
             TickAction::ClearToSend { channel } => {
-              Some(smf.expect_reply(MessageType::ClearToSend().to_message(channel)?))
+              if self.channel_manager().is_channel_allocated(&channel) {
+                Some(smf.expect_reply(MessageType::ClearToSend().to_message(channel)?))
+              } else {
+                // This happens if the channel is removed while issuing CTS messages, e.g.
+                // on CTS violations that ultimately lead to channel removal.
+                debug!("Suppressing CTS for channel={channel:?}...");
+                None
+              }
             }
             TickAction::Nothing => {
               // No clients to send CTS too, and we don't want to spam NewClientCTS/StatusUpdate.

@@ -67,14 +67,14 @@ fn main() -> anyhow::Result<()> {
       Dma::Disabled,
       None::<Gpio0>,
       &spi::config::Config::new()
-          .baudrate(80.MHz().into())
+          .baudrate(40.MHz().into())
           .data_mode(V02Type(MODE_0).into())
           .write_only(true)
   )?;
   let display_interface = SPIInterfaceNoCS::new(
       tft_device,
       PinDriver::output(peripherals.pins.gpio4)?);
-  let mut display = Builder::ili9486_rgb565(display_interface)
+  let mut display = Builder::ili9341_rgb565(display_interface)
       .with_orientation(Orientation::Landscape(false))
       .with_color_order(ColorOrder::Bgr)
       .init(&mut Ets, Some(PinDriver::output(peripherals.pins.gpio18)?))

@@ -1,20 +1,26 @@
-use std::io;
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
+use std::io::{Read};
+use std::net::{IpAddr, TcpStream, UdpSocket};
 use std::time::Duration;
-use log::info;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
-use balboa_spa_messages::message::Message;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, SettingsRequestMessage};
 
 const DISCOVERY_PORT: u16 = 30303;
 const TCP_PORT: u16 = 4257;
 
 fn main() -> anyhow::Result<()> {
-  let target = find_wifi_module()?;
-  println!("Found {target}");
+  let target = find_wifi_modules()?;
+  for t in target {
+    if let Err(e) = probe_target(t) {
+      println!("Error probing {t}: {e}");
+    }
+  }
+  Ok(())
+}
+
+fn probe_target(target: IpAddr) -> anyhow::Result<()> {
+  println!("Probing {target}...");
 
   let socket = TcpStream::connect((target, TCP_PORT))?;
   println!("Connected to {target}");
@@ -65,17 +71,25 @@ fn expect<R: Read>(reader: &mut FramedReader<R>, expected: MessageTypeKind) -> a
   }
 }
 
-fn find_wifi_module() -> anyhow::Result<IpAddr> {
+fn find_wifi_modules() -> anyhow::Result<Vec<IpAddr>> {
   let socket = UdpSocket::bind("0.0.0.0:0")?;
-  socket.set_read_timeout(Some(Duration::from_secs(10)))?;
+  socket.set_read_timeout(Some(Duration::from_secs(5)))?;
   socket.set_broadcast(true)?;
 
   let discovery_msg = "Discovery: Who is out there?";
   socket.send_to(discovery_msg.as_bytes(), format!("255.255.255.255:{}", DISCOVERY_PORT))?;
 
+  let mut found = vec![];
   let mut buf = [0u8; 2048];
-  let (n, addr) = socket.recv_from(&mut buf)?;
-  let response = String::from_utf8(buf[0..n].to_owned())?;
-  println!("Got from {}: {}", addr, response);
-  Ok(addr.ip())
+  loop {
+    match socket.recv_from(&mut buf) {
+      Ok((n, addr)) => {
+        let response = String::from_utf8(buf[0..n].to_owned())?;
+        println!("Got from {}: {}", addr, response);
+        found.push(addr.ip());
+      }
+      Err(e) if found.is_empty() => return Err(e.into()),
+      Err(_) => return Ok(found),
+    }
+  }
 }

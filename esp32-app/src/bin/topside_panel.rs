@@ -92,17 +92,17 @@ fn main() -> anyhow::Result<()> {
       ]),
       backlight_control);
 
-  // let nvs = EspDefaultNvsPartition::take()?;
-  // let esp_wifi = EspWifiManager::new(
-  //     peripherals.modem,
-  //     event_loop,
-  //     nvs,
-  //     Advertisement::fake_balboa().name)?;
+  let nvs = EspDefaultNvsPartition::take()?;
+  let esp_wifi = EspWifiManager::new(
+      peripherals.modem,
+      event_loop,
+      nvs,
+      Advertisement::fake_balboa().name)?;
 
   let topside_app = TopsidePanelApp::new(
       transport,
       lcd_device,
-      None::<EspWifiManager>,
+      Some(esp_wifi),
       FreeRtosDelay,
       Some(EspStatusPrinter));
 

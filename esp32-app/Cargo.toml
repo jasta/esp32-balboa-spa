@@ -26,7 +26,7 @@ lvgl-codegen = { path = "/home/jasta/software/lvgl-rs/lvgl-codegen" }
 [dependencies]
 esp-idf-sys = { version = "0.32.1", features = ["binstart"] }
 esp-idf-svc = "0.45.0"
-esp-idf-hal = { version = "0.40.1", features = [ "edge-executor" ] }
+esp-idf-hal = "0.40.1"
 embedded-svc = "0.24.0"
 embedded-hal = "0.2.7"
 log = "0.4.17"
@@ -45,8 +45,6 @@ mipidsi = "0.6.0"
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.7.1"
 debounced-pin = "0.3.0"
-edge-executor = "0.3.0"
-heapless = "0.7.16"
 
 [build-dependencies]
 embuild = "0.31.0"

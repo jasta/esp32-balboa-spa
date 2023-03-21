@@ -1,10 +1,10 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
-use std::{thread};
+use std::thread;
 use std::time::Duration;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::PixelColor;
-use log::{debug, info};
+use log::info;
 use lvgl::Color;
 use common_lib::bus_transport::BusTransport;
 use common_lib::transport::Transport;
@@ -156,18 +156,5 @@ impl HomogenousTransport {
 impl Transport<HomogenousRead, HomogenousWrite> for HomogenousTransport {
   fn split(self) -> (HomogenousRead, HomogenousWrite) {
     (self.reader, self.writer)
-  }
-}
-
-pub struct AsyncSmokeTest;
-impl AsyncSmokeTest {
-  pub async fn foo(&self) {
-    info!("foo");
-    async_io::Timer::after(Duration::from_millis(50)).await;
-    self.bar().await;
-  }
-
-  async fn bar(&self) {
-    info!("bar");
   }
 }

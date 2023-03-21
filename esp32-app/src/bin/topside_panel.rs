@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use common_lib::transport::Transport;
 use debounced_pin::{ActiveLow, Debounce, DebouncedInputPin, DebounceState};
 use display_interface_spi::SPIInterfaceNoCS;
+use edge_executor::{Executor, Local, Monitor, SpawnError, Task, Wait};
 use embedded_hal::digital::v2::{InputPin, OutputPin, PinState};
 use embedded_hal::spi::MODE_0;
 use esp_idf_hal::delay::Ets;
@@ -14,6 +15,8 @@ use esp_idf_hal::spi;
 use esp_idf_hal::spi::config::V02Type;
 use esp_idf_hal::spi::Dma;
 use esp_idf_hal::spi::SpiDeviceDriver;
+use esp_idf_hal::task::executor::EspExecutor;
+use esp_idf_hal::task::thread::ThreadSpawnConfiguration;
 use esp_idf_hal::units::FromValueType;
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::log::EspLogger;
@@ -21,7 +24,7 @@ use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_sys::esp_app_desc;
 use log::{error, info, LevelFilter};
 use mipidsi::{Builder, ColorOrder, Orientation};
-use topside_panel_lib::app::topside_panel_app::TopsidePanelApp;
+use topside_panel_lib::app::topside_panel_app::{AsyncSmokeTest, TopsidePanelApp};
 use topside_panel_lib::model::key_event::Key;
 use topside_panel_lib::view::lcd_device::{BacklightBrightness, BacklightControl};
 use wifi_module_lib::advertisement::Advertisement;
@@ -106,10 +109,40 @@ fn main() -> anyhow::Result<()> {
       FreeRtosDelay,
       Some(EspStatusPrinter));
 
+  info!("Simple async lib test...");
+  schedule::<8, _>(8000, move || {
+    let executor = EspExecutor::new();
+    let mut tasks = heapless::Vec::new();
+
+    executor.spawn_collect(AsyncSmokeTest.foo(), &mut tasks)?;
+
+    Ok((executor, tasks))
+  });
+
   info!("Starting app...");
   if let Err(e) = topside_app.run_loop() {
     error!("Fatal error running topside panel: {e}");
   }
 
   panic!("main exit, rebooting...");
+}
+
+
+pub fn schedule<'a, const C: usize, M>(
+  stack_size: usize,
+  spawner: impl FnOnce() -> Result<(Executor<'a, C, M, Local>, heapless::Vec<Task<()>, C>), SpawnError>
+  + Send
+  + 'static,
+) -> std::thread::JoinHandle<()>
+  where
+      M: Monitor + Wait + Default,
+{
+  std::thread::Builder::new()
+      .stack_size(stack_size)
+      .spawn(move || {
+        let (executor, tasks) = spawner().unwrap();
+
+        executor.run_tasks(|| true, tasks);
+      })
+      .unwrap()
 }

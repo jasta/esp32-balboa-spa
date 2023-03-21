@@ -22,3 +22,8 @@ panic = 'abort'
 
 [profile.dev]
 panic = 'abort'
+
+[patch.crates-io]
+lvgl = { path = "/home/jasta/software/lvgl-rs/lvgl" }
+lvgl-sys = { path = "/home/jasta/software/lvgl-rs/lvgl-sys" }
+lvgl-codegen = { path = "/home/jasta/software/lvgl-rs/lvgl-codegen" }

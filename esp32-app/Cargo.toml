@@ -19,6 +19,9 @@ esp_idf_version = "branch:dpp_fix_v5.0.1"
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys" }
 #esp-idf-svc = { path = "/home/jasta/software/esp-idf-svc" }
 esp-idf-svc = { git = "https://github.com/jasta/esp-idf-svc", branch = "esp_dpp" }
+lvgl = { path = "/home/jasta/software/lvgl-rs/lvgl" }
+lvgl-sys = { path = "/home/jasta/software/lvgl-rs/lvgl-sys" }
+lvgl-codegen = { path = "/home/jasta/software/lvgl-rs/lvgl-codegen" }
 
 [dependencies]
 esp-idf-sys = { version = "0.32.1", features = ["binstart"] }

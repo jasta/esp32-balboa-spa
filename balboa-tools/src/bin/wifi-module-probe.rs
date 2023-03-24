@@ -1,25 +1,43 @@
-use std::io::{Read};
-use std::net::{IpAddr, TcpStream, UdpSocket};
+use std::fmt::{Display, Formatter};
+use std::io::{BufRead, BufReader, Cursor, Read};
+use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::time::Duration;
+use anyhow::anyhow;
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, SettingsRequestMessage};
 
+use clap::Parser;
+use std::fmt::Write;
+
 const DISCOVERY_PORT: u16 = 30303;
 const TCP_PORT: u16 = 4257;
 
+#[derive(Parser, Debug)]
+pub struct Args {
+  /// Scan only, do not connect to the discovered hosts
+  #[arg(short, long, default_value_t = false)]
+  pub scan_only: bool,
+}
+
 fn main() -> anyhow::Result<()> {
+  let args = Args::parse();
+
   let target = find_wifi_modules()?;
-  for t in target {
-    if let Err(e) = probe_target(t) {
-      println!("Error probing {t}: {e}");
+  if !args.scan_only {
+    for t in target {
+      if let Err(e) = probe_target(&t) {
+        eprintln!("Error probing {}: {e}", t.ip_address);
+      }
     }
   }
   Ok(())
 }
 
-fn probe_target(target: IpAddr) -> anyhow::Result<()> {
+fn probe_target(host: &ModuleHost) -> anyhow::Result<()> {
+  let target = host.ip_address;
+
   println!("Probing {target}...");
 
   let socket = TcpStream::connect((target, TCP_PORT))?;
@@ -71,7 +89,7 @@ fn expect<R: Read>(reader: &mut FramedReader<R>, expected: MessageTypeKind) -> a
   }
 }
 
-fn find_wifi_modules() -> anyhow::Result<Vec<IpAddr>> {
+fn find_wifi_modules() -> anyhow::Result<Vec<ModuleHost>> {
   let socket = UdpSocket::bind("0.0.0.0:0")?;
   socket.set_read_timeout(Some(Duration::from_secs(5)))?;
   socket.set_broadcast(true)?;
@@ -84,12 +102,54 @@ fn find_wifi_modules() -> anyhow::Result<Vec<IpAddr>> {
   loop {
     match socket.recv_from(&mut buf) {
       Ok((n, addr)) => {
-        let response = String::from_utf8(buf[0..n].to_owned())?;
-        println!("Got from {}: {}", addr, response);
-        found.push(addr.ip());
+        match ModuleHost::from_discovery_packet(addr.ip(), &buf[0..n]) {
+          Ok(host) => {
+            println!("{} {} {}", host.ip_address, host.format_mac(), host.name);
+            found.push(host)
+          },
+          Err(e) => eprintln!("Failed to parse {}: {e}", addr.ip()),
+        }
       }
       Err(e) if found.is_empty() => return Err(e.into()),
       Err(_) => return Ok(found),
     }
+  }
+}
+
+#[derive(Debug, Clone)]
+struct ModuleHost {
+  ip_address: IpAddr,
+  name: String,
+  mac: [u8; 6],
+}
+
+impl ModuleHost {
+  pub fn from_discovery_packet(ip_address: IpAddr, packet: &[u8]) -> anyhow::Result<Self> {
+    let (name, mac) = {
+      let cursor = Cursor::new(packet);
+      let mut lines = cursor.lines();
+      let name = lines.next().ok_or_else(|| anyhow!("Missing hostname"))??;
+      let mac_str = lines.next().ok_or_else(|| anyhow!("Missing MAC"))??;
+
+      let mac_slice: Vec<_> = mac_str
+          .split('-')
+          .filter_map(|x| u8::from_str_radix(x, 16).ok())
+          .collect();
+      let mut mac = [0u8; 6];
+      mac.copy_from_slice(&mac_slice);
+      (name, mac)
+    };
+
+    Ok(Self { ip_address, name, mac })
+  }
+
+  fn format_mac(&self) -> String {
+    let mut formatted = self.mac.iter()
+        .fold(String::new(), |mut out, x| {
+          write!(out, "{:02x}:", x).unwrap();
+          out
+        });
+    formatted.pop();
+    formatted
   }
 }

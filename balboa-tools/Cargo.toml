@@ -9,3 +9,4 @@ anyhow = "1"
 thiserror = "1"
 balboa-spa-messages = { path = "../balboa-spa-messages" }
 num-traits = "0.2.15"
+clap = { version = "4.1.4", features = ["derive"] }

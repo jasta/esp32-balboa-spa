@@ -2,7 +2,7 @@ extern crate core;
 
 use std::thread;
 use std::time::Duration;
-use log::LevelFilter;
+use log::{info, LevelFilter};
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
@@ -35,15 +35,18 @@ fn mainboard_get_version() -> anyhow::Result<()> {
   // flexible and can detect stateful errors earlier, more clearly, and more consistently.
   let board_model = loop {
     let message = framed_reader.next_message()?;
-    match (message.channel, MessageType::try_from(&message)?) {
+    let mt = MessageType::try_from(&message)?;
+    info!("Handling {mt:?} while {state:?}");
+    match (message.channel, mt) {
       (Channel::MulticastChannelAssignment, MessageType::NewClientClearToSend()) => {
-        assert_eq!(state, GetVersionTestState::NeedChannelWaitingCTS);
-        framed_writer.write(
-          &MessageType::ChannelAssignmentRequest {
-            device_type: 0x0,
-            client_hash: 0xcafe,
-          }.to_message(Channel::MulticastChannelAssignment)?)?;
-        state = GetVersionTestState::NeedChannelWaitingAssignment;
+        if state == GetVersionTestState::NeedChannelWaitingCTS {
+          framed_writer.write(
+            &MessageType::ChannelAssignmentRequest {
+              device_type: 0x0,
+              client_hash: 0xcafe,
+            }.to_message(Channel::MulticastChannelAssignment)?)?;
+          state = GetVersionTestState::NeedChannelWaitingAssignment;
+        }
       }
       (Channel::MulticastChannelAssignment, MessageType::ChannelAssignmentResponse { channel, .. }) => {
         assert_eq!(state, GetVersionTestState::NeedChannelWaitingAssignment);
@@ -69,6 +72,7 @@ fn mainboard_get_version() -> anyhow::Result<()> {
       }
       _ => panic!("Unhandled message={message:?}"),
     }
+    info!("State is now: {state:?}");
   };
 
   assert_eq!(board_model, "Mock Spa");

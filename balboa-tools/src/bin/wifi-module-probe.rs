@@ -1,15 +1,15 @@
-use std::fmt::{Display, Formatter};
-use std::io::{BufRead, BufReader, Cursor, Read};
-use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
+use std::fmt::Write;
+use std::io::{BufRead, Cursor, Read};
+use std::net::{IpAddr, TcpStream, UdpSocket};
 use std::time::Duration;
+
 use anyhow::anyhow;
+use clap::Parser;
+
 use balboa_spa_messages::channel::Channel;
 use balboa_spa_messages::framed_reader::FramedReader;
 use balboa_spa_messages::framed_writer::FramedWriter;
 use balboa_spa_messages::message_types::{MessageType, MessageTypeKind, SettingsRequestMessage};
-
-use clap::Parser;
-use std::fmt::Write;
 
 const DISCOVERY_PORT: u16 = 30303;
 const TCP_PORT: u16 = 4257;
